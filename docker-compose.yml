@@ -1,0 +1,49 @@
+services:
+  db_hn:
+    image: bitnami/postgresql:latest
+    container_name: site_hn_db
+    ports:
+      - "5431:5432"
+    environment:
+      - POSTGRESQL_USERNAME=admin
+      - POSTGRESQL_PASSWORD=123456
+      - POSTGRESQL_DATABASE=sales_db
+      - ALLOW_EMPTY_PASSWORD=no
+    volumes:
+      - ./init-db/site_hn:/docker-entrypoint-initdb.d
+    networks:
+      - distributed_nw
+
+  db_dn:
+    image: bitnami/postgresql:latest
+    container_name: site_dn_db
+    ports:
+      - "5432:5432"
+    environment:
+      - POSTGRESQL_USERNAME=admin
+      - POSTGRESQL_PASSWORD=123456
+      - POSTGRESQL_DATABASE=sales_db
+      - ALLOW_EMPTY_PASSWORD=no
+    volumes:
+      - ./init-db/site_dn:/docker-entrypoint-initdb.d
+    networks:
+      - distributed_nw
+
+  db_hcm:
+    image: bitnami/postgresql:latest
+    container_name: site_hcm_db
+    ports:
+      - "5433:5432"
+    environment:
+      - POSTGRESQL_USERNAME=admin
+      - POSTGRESQL_PASSWORD=123456
+      - POSTGRESQL_DATABASE=sales_db
+      - ALLOW_EMPTY_PASSWORD=no
+    volumes:
+      - ./init-db/site_hcm:/docker-entrypoint-initdb.d
+    networks:
+      - distributed_nw
+
+networks:
+  distributed_nw:
+    driver: bridge
