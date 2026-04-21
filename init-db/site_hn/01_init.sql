@@ -68,30 +68,49 @@ CREATE TABLE order_detail (
     PRIMARY KEY (order_id, product_id, warehouse_id)
 );
 
-CREATE INDEX idx_inventory_product ON inventory(product_id);
-CREATE INDEX idx_inventory_warehouse ON inventory(warehouse_id);
+-- BẢNG PHỤC VỤ DỮ LIỆU PHÂN TÁN (REPLICATION & DISTRIBUTED TRANSACTIONS)
+CREATE TABLE replication_log (
+    id SERIAL PRIMARY KEY,
+    entity_id INT NOT NULL,
+    entity_type VARCHAR(50) NOT NULL,
+    action VARCHAR(20) NOT NULL,      -- INSERT, UPDATE, DELETE
+    target_site VARCHAR(20) NOT NULL, -- 'DN' hoặc 'HCM'
+    status VARCHAR(20) DEFAULT 'PENDING',
+    retry_count INT DEFAULT 0,
+    error_message TEXT,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+);
 
-CREATE INDEX idx_order_detail_product ON order_detail(product_id);
-CREATE INDEX idx_order_detail_warehouse ON order_detail(warehouse_id);
-
-CREATE INDEX idx_orders_date ON orders(order_date);
-CREATE INDEX idx_orders_site ON orders(site_id);
+CREATE TABLE transaction_log (
+    transaction_id VARCHAR(100) PRIMARY KEY, -- Global Transaction ID (GTID)
+    status VARCHAR(20) NOT NULL,             -- PREPARED, COMMITTED, ABORTED
+    participants TEXT,                       -- Danh sách các site tham gia
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+);
 
 -- DATA REPLICATION: Dữ liệu dùng chung nhân bản ở tất cả các site
 INSERT INTO site (id, site_code, site_name) VALUES
     (1, 'HN', 'Chi nhánh Hà Nội'),
     (2, 'DN', 'Chi nhánh Đà Nẵng'),
     (3, 'HCM', 'Chi nhánh TP.HCM');
+
 INSERT INTO category (id, name) VALUES
     (1, 'Laptop'),
     (2, 'Smartphone');
+
 INSERT INTO product_basic (id, name, price, category_id) VALUES
     (1, 'Macbook M3', 3000, 1),
     (2, 'iPhone 15 Pro', 1200, 2);
 
+-- Dữ liệu chi tiết (Vertical Fragmentation - Thường đặt tại Master Site)
+INSERT INTO product_detail (product_id, description) VALUES
+    (1, 'Macbook Pro M3 với hiệu năng cực mạnh từ chip 3nm Apple silicon'),
+    (2, 'iPhone 15 Pro vỏ Titanium siêu bền và nhẹ');
+
 -- FRAGMENTATION: Phân mảnh ngang (Primary Horizontal) cho Warehouse miền Bắc
 INSERT INTO warehouse (id, code, name, location, region, site_id) VALUES
-    (1, 'WH-HN-01', 'Kho Hoàn Kiếm', 'Hà Nội', 'North', 1),
+    (1, 'WH-HN-01', 'Kho Hoàn Kiếm', 'Hà Nội', 'North', 1);
 
 -- Khởi tạo tồn kho cho các kho tại HN
 INSERT INTO inventory (warehouse_id, product_id, quantity) VALUES
@@ -102,3 +121,19 @@ INSERT INTO inventory (warehouse_id, product_id, quantity) VALUES
 -- Dữ liệu khách hàng cục bộ tại HN
 INSERT INTO customer (id, name, email, main_site_id) VALUES
      (1, 'Nguyen Van A', 'ana@gmail.com', 1);
+
+-- CẬP NHẬT LẠI SEQUENCE CHO CÁC BẢNG CÓ KHÓA CHÍNH TỰ TĂNG (SERIAL)
+SELECT setval('category_id_seq', (SELECT MAX(id) FROM category));
+SELECT setval('product_basic_id_seq', (SELECT MAX(id) FROM product_basic));
+SELECT setval('site_id_seq', (SELECT MAX(id) FROM site));
+SELECT setval('warehouse_id_seq', (SELECT MAX(id) FROM warehouse));
+SELECT setval('customer_id_seq', (SELECT MAX(id) FROM customer));
+SELECT setval('replication_log_id_seq', COALESCE((SELECT MAX(id) FROM replication_log), 1));
+
+-- INDICES
+CREATE INDEX idx_inventory_product ON inventory(product_id);
+CREATE INDEX idx_inventory_warehouse ON inventory(warehouse_id);
+CREATE INDEX idx_order_detail_product ON order_detail(product_id);
+CREATE INDEX idx_order_detail_warehouse ON order_detail(warehouse_id);
+CREATE INDEX idx_orders_date ON orders(order_date);
+CREATE INDEX idx_orders_site ON orders(site_id);
