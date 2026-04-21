@@ -5,6 +5,7 @@ import lombok.*;
 import org.hibernate.annotations.CreationTimestamp;
 
 import java.time.LocalDateTime;
+import com.example.csdlpt.enums.OrderStatus;
 
 @Entity
 @Table(name = "orders")
@@ -25,8 +26,9 @@ public class Order {
     @CreationTimestamp
     private LocalDateTime orderDate;
 
+    @Enumerated(EnumType.STRING)
     @Column(length = 20)
-    private String status;
+    private OrderStatus status;
 
     @ManyToOne(fetch = FetchType.LAZY)
     @JoinColumn(name = "warehouse_id")
