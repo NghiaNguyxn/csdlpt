@@ -27,7 +27,7 @@ public class Customer {
     @Column(columnDefinition = "TEXT")
     private String address;
 
-    @ManyToOne(fetch = FetchType.LAZY)
+    @ManyToOne(fetch = FetchType.EAGER)
     @JoinColumn(name = "main_site_id")
     private Site mainSite;
 }
