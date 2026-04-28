@@ -7,7 +7,8 @@ CREATE TABLE product_basic (
     id SERIAL PRIMARY KEY,
     name VARCHAR(255) NOT NULL,
     price DECIMAL(15,2) NOT NULL CHECK (price >= 0),
-    category_id INT REFERENCES category(id)
+    category_id INT REFERENCES category(id),
+    is_active BOOLEAN DEFAULT TRUE
 );
 
 CREATE TABLE product_detail (
@@ -39,18 +40,23 @@ CREATE TABLE inventory (
     PRIMARY KEY (warehouse_id, product_id)
 );
 
-CREATE TABLE customer (
-    id SERIAL PRIMARY KEY,
+CREATE TABLE customer_identity (
+    id BIGINT PRIMARY KEY,
+    email VARCHAR(100) UNIQUE NOT NULL,
+    password VARCHAR(100) NOT NULL,
+    main_site_id INT REFERENCES site(id) NOT NULL
+);
+
+CREATE TABLE customer_profile (
+    id BIGINT PRIMARY KEY REFERENCES customer_identity(id),
     name VARCHAR(100) NOT NULL,
-    email VARCHAR(100) UNIQUE,
     phone VARCHAR(20),
-    address TEXT,
-    main_site_id INT REFERENCES site(id)
+    address TEXT
 );
 
 CREATE TABLE orders (
     id BIGINT PRIMARY KEY,
-    customer_id INT REFERENCES customer(id),
+    customer_id BIGINT REFERENCES customer_identity(id),
     order_date TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
     status VARCHAR(20) DEFAULT 'PENDING'
         CHECK (status IN ('PENDING', 'COMPLETED', 'CANCELLED')),
@@ -59,7 +65,7 @@ CREATE TABLE orders (
 );
 
 CREATE TABLE order_detail (
-    order_id INT REFERENCES orders(id),
+    order_id BIGINT REFERENCES orders(id),
     product_id INT REFERENCES product_basic(id),
     warehouse_id INT REFERENCES warehouse(id),
     quantity INT NOT NULL CHECK (quantity > 0),
@@ -68,12 +74,10 @@ CREATE TABLE order_detail (
     PRIMARY KEY (order_id, product_id, warehouse_id)
 );
 
-
-
 -- BẢNG PHỤC VỤ DỮ LIỆU PHÂN TÁN (REPLICATION & DISTRIBUTED TRANSACTIONS)
 CREATE TABLE replication_log (
     id SERIAL PRIMARY KEY,
-    entity_id INT NOT NULL,
+    entity_id BIGINT NOT NULL,
     entity_type VARCHAR(50) NOT NULL,
     action VARCHAR(20) NOT NULL,      -- INSERT, UPDATE, DELETE
     target_site VARCHAR(20) NOT NULL, -- 'DN' hoặc 'HCM'
@@ -96,9 +100,11 @@ INSERT INTO site (id, site_code, site_name) VALUES
     (1, 'HN', 'Chi nhánh Hà Nội'),
     (2, 'DN', 'Chi nhánh Đà Nẵng'),
     (3, 'HCM', 'Chi nhánh TP.HCM');
+
 INSERT INTO category (id, name) VALUES
     (1, 'Laptop'),
     (2, 'Smartphone');
+
 INSERT INTO product_basic (id, name, price, category_id) VALUES
     (1, 'Macbook M3', 3000, 1),
     (2, 'iPhone 15 Pro', 1200, 2);
@@ -113,15 +119,18 @@ INSERT INTO inventory (warehouse_id, product_id, quantity) VALUES
     (2, 2, 40);
 
 -- Dữ liệu khách hàng cục bộ tại DN
-INSERT INTO customer (id, name, email, main_site_id) VALUES
-    (2, 'Tran Thi B', 'bt@gmail.com', 2);
+INSERT INTO customer_identity (id, email, password, main_site_id) VALUES
+    (2, 'bt@gmail.com', '123456', 2);
+
+INSERT INTO customer_profile (id, name, phone, address) VALUES
+    (2, 'Tran Thi B', '0987654321', '456 Le Duan, Hai Chau, Da Nang');
 
 -- CẬP NHẬT LẠI SEQUENCE CHO CÁC BẢNG CÓ KHÓA CHÍNH TỰ TĂNG (SERIAL)
 SELECT setval('category_id_seq', (SELECT MAX(id) FROM category));
 SELECT setval('product_basic_id_seq', (SELECT MAX(id) FROM product_basic));
 SELECT setval('site_id_seq', (SELECT MAX(id) FROM site));
 SELECT setval('warehouse_id_seq', (SELECT MAX(id) FROM warehouse));
-SELECT setval('customer_id_seq', (SELECT MAX(id) FROM customer));
+-- Không cần setval cho customer_identity vì dùng BIGINT (Snowflake/Manual ID)
 SELECT setval('replication_log_id_seq', COALESCE((SELECT MAX(id) FROM replication_log), 1));
 
 -- INDICES

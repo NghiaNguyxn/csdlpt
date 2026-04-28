@@ -1,6 +1,6 @@
 package com.example.csdlpt.mapper;
 
-import com.example.csdlpt.dto.request.ProductCreateRequest;
+import com.example.csdlpt.dto.request.ProductRequest;
 import com.example.csdlpt.dto.response.ProductBasicResponse;
 import com.example.csdlpt.dto.response.ProductResponse;
 import com.example.csdlpt.entity.ProductBasic;
@@ -16,11 +16,12 @@ public interface ProductMapper {
 
     @Mapping(target = "id", ignore = true)
     @Mapping(target = "category", ignore = true)
-    ProductBasic toProductBasic(ProductCreateRequest request);
+    @Mapping(target = "isActive", ignore = true)
+    ProductBasic toProductBasic(ProductRequest request);
 
     @Mapping(target = "productId", ignore = true)
     @Mapping(target = "product", ignore = true)
-    ProductDetail toProductDetail(ProductCreateRequest request);
+    ProductDetail toProductDetail(ProductRequest request);
 
     @Mapping(target = "id", source = "basic.id")
     @Mapping(target = "categoryId", source = "basic.category.id")

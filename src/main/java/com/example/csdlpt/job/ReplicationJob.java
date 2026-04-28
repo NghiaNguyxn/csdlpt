@@ -3,6 +3,8 @@ package com.example.csdlpt.job;
 import com.example.csdlpt.entity.ProductBasic;
 import com.example.csdlpt.entity.ReplicationLog;
 import com.example.csdlpt.enums.ReplicationStatus;
+import com.example.csdlpt.exception.AppException;
+import com.example.csdlpt.exception.ErrorCode;
 import com.example.csdlpt.repository.site_hn.HanoiProductRepository;
 import com.example.csdlpt.repository.site_hn.HanoiReplicationLogRepository;
 import com.example.csdlpt.service.ReplicationService;
@@ -42,48 +44,46 @@ public class ReplicationJob {
                 // Chỉ xử lý table PRODUCT
                 if ("PRODUCT".equals(logEntry.getEntityType())) {
 
-                    // Lấy dữ liệu gốc từ Master (Hà Nội)
-                    ProductBasic masterProduct = hanoiProductRepository.findById(logEntry.getEntityId())
-                            .orElseThrow(() -> new RuntimeException(
+                    // Lấy dữ liệu gốc từ Master (Hà Nội). 
+                    // Chú ý: Dùng findById thay vì findByIdAndIsActiveTrue vì ta muốn đồng bộ cả trạng thái is_active=false (Soft Delete)
+                    ProductBasic masterProduct = hanoiProductRepository.findById(logEntry.getEntityId().intValue())
+                            .orElseThrow(() -> new AppException(ErrorCode.PRODUCT_NOT_FOUND,
                                     "Không tìm thấy Product ID=" + logEntry.getEntityId() + " tại Master!"));
 
-                    // Sử dụng Native Query để bảo toàn ID và tránh lỗi Hibernate Session
                     Integer categoryId = masterProduct.getCategory() != null ? masterProduct.getCategory().getId()
                             : null;
 
                     if ("DN".equals(logEntry.getTargetSite())) {
-                        replicationService.replicateToDanang(
-                                masterProduct.getId(),
+                        replicationService.replicateProductToDanang(
+                                masterProduct.getId().longValue(),
                                 masterProduct.getName(),
                                 masterProduct.getPrice(),
-                                categoryId);
+                                categoryId,
+                                masterProduct.getIsActive());
                     } else if ("HCM".equals(logEntry.getTargetSite())) {
-                        replicationService.replicateToHcm(
-                                masterProduct.getId(),
+                        replicationService.replicateProductToHcm(
+                                masterProduct.getId().longValue(),
                                 masterProduct.getName(),
                                 masterProduct.getPrice(),
-                                categoryId);
+                                categoryId,
+                                masterProduct.getIsActive());
                     }
 
-                    // Đánh dấu thành công (Transaction tại Master HN)
+                    // Đánh dấu thành công
                     replicationService.updateLogStatus(logEntry, ReplicationStatus.DONE, null);
 
-                    log.info("Đã đồng bộ thành công (Robust Service) Log ID {} sang Site {}", logEntry.getId(),
-                            logEntry.getTargetSite());
+                    log.info("Đã đồng bộ thành công (Action: {}) Log ID {} sang Site {}", 
+                            logEntry.getAction(), logEntry.getId(), logEntry.getTargetSite());
                 }
 
             } catch (Exception e) {
                 log.error("Lỗi khi đồng bộ Log ID {}: {}", logEntry.getId(), e.getMessage());
-                // Lưu lại lỗi và tăng retry_count tường minh vào Master DB
                 replicationService.updateLogStatus(logEntry, ReplicationStatus.PENDING, e.getMessage());
 
-                // Nếu thử quá 5 lần thì đánh dấu FAILED
                 if (logEntry.getRetryCount() >= 5) {
                     replicationService.updateLogStatus(logEntry, ReplicationStatus.FAILED, e.getMessage());
                 }
             }
         }
-
-        // Không cần saveAll ở cuối nữa vì đã save lẻ trong từng transaction thành công
     }
 }

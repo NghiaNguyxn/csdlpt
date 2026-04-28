@@ -23,7 +23,7 @@ public class ReplicationLog {
     private Integer id;
 
     @Column(name = "entity_id", nullable = false)
-    private Integer entityId;
+    private Long entityId;
 
     @Column(name = "entity_type", nullable = false, length = 50)
     private String entityType;

@@ -1,12 +1,12 @@
 package com.example.csdlpt.interceptor;
 
 import com.example.csdlpt.context.SiteContextHolder;
-import com.example.csdlpt.entity.Customer;
+import com.example.csdlpt.entity.CustomerIdentity;
 import com.example.csdlpt.exception.AppException;
 import com.example.csdlpt.exception.ErrorCode;
-import com.example.csdlpt.repository.site_dn.DanangCustomerRepository;
-import com.example.csdlpt.repository.site_hcm.HcmCustomerRepository;
-import com.example.csdlpt.repository.site_hn.HanoiCustomerRepository;
+import com.example.csdlpt.repository.site_dn.DanangCustomerIdentityRepository;
+import com.example.csdlpt.repository.site_hcm.HcmCustomerIdentityRepository;
+import com.example.csdlpt.repository.site_hn.HanoiCustomerIdentityRepository;
 import jakarta.servlet.http.HttpServletRequest;
 import jakarta.servlet.http.HttpServletResponse;
 import lombok.RequiredArgsConstructor;
@@ -19,9 +19,9 @@ import org.springframework.web.servlet.HandlerInterceptor;
 @RequiredArgsConstructor
 public class SiteInterceptor implements HandlerInterceptor {
 
-    private final HanoiCustomerRepository hanoiCustomerRepository;
-    private final DanangCustomerRepository danangCustomerRepository;
-    private final HcmCustomerRepository hcmCustomerRepository;
+    private final HanoiCustomerIdentityRepository hanoiCustomerRepository;
+    private final DanangCustomerIdentityRepository danangCustomerRepository;
+    private final HcmCustomerIdentityRepository hcmCustomerRepository;
 
     private static final String EMAIL_HEADER = "User-Email";
 
@@ -40,7 +40,7 @@ public class SiteInterceptor implements HandlerInterceptor {
         log.info("Bắt đầu truy vấn phân tán để tìm khách hàng có email: {}", email);
 
         // Distributed Search Mechanism (Fragmentation Transparency)
-        Customer customer = hanoiCustomerRepository.findByEmail(email)
+        CustomerIdentity customer = hanoiCustomerRepository.findByEmail(email)
                 .orElseGet(() -> danangCustomerRepository.findByEmail(email)
                         .orElseGet(() -> hcmCustomerRepository.findByEmail(email)
                                 .orElseThrow(() -> new AppException(ErrorCode.INVALID_KEY,

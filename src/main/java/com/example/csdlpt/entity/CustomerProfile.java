@@ -4,30 +4,27 @@ import jakarta.persistence.*;
 import lombok.*;
 
 @Entity
-@Table(name = "customer")
+@Table(name = "customer_profile")
 @Getter
 @Setter
 @NoArgsConstructor
 @AllArgsConstructor
 @Builder
-public class Customer {
+public class CustomerProfile {
     @Id
-    @GeneratedValue(strategy = GenerationType.IDENTITY)
-    private Integer id;
+    private Long id;
+
+    @OneToOne(fetch = FetchType.LAZY)
+    @MapsId
+    @JoinColumn(name = "id")
+    private CustomerIdentity identity;
 
     @Column(nullable = false, length = 100)
     private String name;
-
-    @Column(unique = true, length = 100)
-    private String email;
 
     @Column(length = 20)
     private String phone;
 
     @Column(columnDefinition = "TEXT")
     private String address;
-
-    @ManyToOne(fetch = FetchType.EAGER)
-    @JoinColumn(name = "main_site_id")
-    private Site mainSite;
 }
