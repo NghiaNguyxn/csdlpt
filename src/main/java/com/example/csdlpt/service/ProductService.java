@@ -1,5 +1,6 @@
 package com.example.csdlpt.service;
 
+import com.example.csdlpt.enums.ReplicationAction;
 import lombok.AccessLevel;
 
 import com.example.csdlpt.entity.Category;
@@ -9,12 +10,11 @@ import java.util.List;
 import org.springframework.stereotype.Service;
 
 import com.example.csdlpt.context.SiteContextHolder;
-import com.example.csdlpt.dto.request.ProductCreateRequest;
+import com.example.csdlpt.dto.request.ProductRequest;
 import com.example.csdlpt.dto.response.ProductBasicResponse;
 import com.example.csdlpt.dto.response.ProductResponse;
 import com.example.csdlpt.entity.ProductBasic;
 import com.example.csdlpt.entity.ProductDetail;
-import com.example.csdlpt.entity.ReplicationLog;
 import com.example.csdlpt.exception.AppException;
 import com.example.csdlpt.exception.ErrorCode;
 import com.example.csdlpt.mapper.ProductMapper;
@@ -23,8 +23,6 @@ import com.example.csdlpt.repository.site_hcm.HcmProductRepository;
 import com.example.csdlpt.repository.site_hn.HanoiCategoryRepository;
 import com.example.csdlpt.repository.site_hn.HanoiProductDetailRepository;
 import com.example.csdlpt.repository.site_hn.HanoiProductRepository;
-import com.example.csdlpt.repository.site_hn.HanoiReplicationLogRepository;
-import com.example.csdlpt.enums.ReplicationStatus;
 
 import jakarta.transaction.Transactional;
 import lombok.RequiredArgsConstructor;
@@ -47,10 +45,10 @@ public class ProductService {
 
     ProductMapper productMapper;
 
-    HanoiReplicationLogRepository hanoiReplicationLogRepository;
+    ReplicationService replicationService;
 
     @Transactional
-    public ProductResponse createProduct(ProductCreateRequest request) {
+    public ProductResponse createProduct(ProductRequest request) {
 
         ProductBasic basic = productMapper.toProductBasic(request);
         ProductDetail detail = productMapper.toProductDetail(request);
@@ -63,28 +61,12 @@ public class ProductService {
 
         // 1. CHỈ LƯU VÀO MASTER (HÀ NỘI)
         ProductBasic savedBasic = hanoiProductRepository.save(basic);
-        ProductDetail savedDetail = hanoiDetailRepository.save(detail);
+        hanoiDetailRepository.save(detail);
 
         // 2. GHI LOG CHO CƠ CHẾ LAZY REPLICATION (DEFERRED UPDATE)
-        ReplicationLog logDN = ReplicationLog.builder()
-                .entityId(savedBasic.getId())
-                .entityType("PRODUCT")
-                .action("INSERT")
-                .targetSite("DN")
-                .status(ReplicationStatus.PENDING)
-                .build();
+        replicationService.logChange(savedBasic.getId().longValue(), "PRODUCT", ReplicationAction.INSERT);
 
-        ReplicationLog logHCM = ReplicationLog.builder()
-                .entityId(savedBasic.getId())
-                .entityType("PRODUCT")
-                .action("INSERT")
-                .targetSite("HCM")
-                .status(ReplicationStatus.PENDING)
-                .build();
-
-        hanoiReplicationLogRepository.saveAll(List.of(logDN, logHCM));
-
-        return productMapper.toResponse(savedBasic, savedDetail);
+        return productMapper.toResponse(savedBasic, detail);
 
     }
 
@@ -96,12 +78,12 @@ public class ProductService {
         List<ProductBasic> basics;
 
         if ("DN".equals(localSiteCode)) {
-            basics = danangProductRepository.findAll();
+            basics = danangProductRepository.findByIsActiveTrue();
         } else if ("HCM".equals(localSiteCode)) {
-            basics = hcmProductRepository.findAll();
+            basics = hcmProductRepository.findByIsActiveTrue();
         } else {
             // Mặc định hoặc HN
-            basics = hanoiProductRepository.findAll();
+            basics = hanoiProductRepository.findByIsActiveTrue();
         }
 
         return productMapper.toBasicResponses(basics);
@@ -117,13 +99,13 @@ public class ProductService {
         ProductDetail detail;
 
         if ("DN".equals(localSiteCode)) {
-            basic = danangProductRepository.findById(id)
+            basic = danangProductRepository.findByIdAndIsActiveTrue(id)
                     .orElseThrow(() -> new AppException(ErrorCode.PRODUCT_NOT_FOUND));
         } else if ("HCM".equals(localSiteCode)) {
-            basic = hcmProductRepository.findById(id)
+            basic = hcmProductRepository.findByIdAndIsActiveTrue(id)
                     .orElseThrow(() -> new AppException(ErrorCode.PRODUCT_NOT_FOUND));
         } else {
-            basic = hanoiProductRepository.findById(id)
+            basic = hanoiProductRepository.findByIdAndIsActiveTrue(id)
                     .orElseThrow(() -> new AppException(ErrorCode.PRODUCT_NOT_FOUND));
         }
 
@@ -132,6 +114,54 @@ public class ProductService {
 
         return productMapper.toResponse(basic, detail);
 
+    }
+
+    @Transactional
+    public ProductResponse updateProduct(Integer id, ProductRequest request) {
+
+        // 1. Tìm Product hiện tại từ Master (Hà Nội)
+        ProductBasic basic = hanoiProductRepository.findByIdAndIsActiveTrue(id)
+                .orElseThrow(() -> new AppException(ErrorCode.PRODUCT_NOT_FOUND));
+
+        ProductDetail detail = hanoiDetailRepository.findByProductId(id)
+                .orElseThrow(() -> new AppException(ErrorCode.PRODUCT_NOT_FOUND));
+
+        // 2. Tìm Category
+        Category category = hanoiCategoryRepository.findById(request.getCategoryId())
+                .orElseThrow(() -> new AppException(ErrorCode.CATEGORY_NOT_FOUND));
+
+        // 3. Thay thế toàn bộ dữ liệu (Full Update)
+        basic.setName(request.getName());
+        basic.setPrice(request.getPrice());
+        basic.setCategory(category);
+        detail.setDescription(request.getDescription());
+
+        // 4. Lưu thay đổi
+        hanoiProductRepository.save(basic);
+        hanoiDetailRepository.save(detail);
+
+        // 5. Tạo log cho Replications
+        replicationService.logChange(basic.getId().longValue(), "PRODUCT", ReplicationAction.UPDATE);
+
+        // 6. Trả về response
+        return productMapper.toResponse(basic, detail);
+
+    }
+
+    @Transactional
+    public String deleteProduct(Integer id) {
+        // 1. Tìm Product hiện tại từ Master (Hà Nội)
+        ProductBasic basic = hanoiProductRepository.findByIdAndIsActiveTrue(id)
+                .orElseThrow(() -> new AppException(ErrorCode.PRODUCT_NOT_FOUND));
+
+        // 2. Soft Delete: Đánh dấu không hoạt động
+        basic.setIsActive(false);
+        hanoiProductRepository.save(basic);
+
+        // 3. Tạo log cho Replications
+        replicationService.logChange(basic.getId().longValue(), "PRODUCT", ReplicationAction.DELETE);
+
+        return "Xóa sản phẩm thành công (Soft Delete)!";
     }
 
 }

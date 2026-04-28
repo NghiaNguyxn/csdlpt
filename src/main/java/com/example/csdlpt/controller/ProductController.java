@@ -1,6 +1,6 @@
 package com.example.csdlpt.controller;
 
-import com.example.csdlpt.dto.request.ProductCreateRequest;
+import com.example.csdlpt.dto.request.ProductRequest;
 import com.example.csdlpt.dto.response.ApiResponse;
 import com.example.csdlpt.dto.response.ProductBasicResponse;
 import com.example.csdlpt.dto.response.ProductResponse;
@@ -12,12 +12,7 @@ import lombok.extern.slf4j.Slf4j;
 
 import java.util.List;
 
-import org.springframework.web.bind.annotation.GetMapping;
-import org.springframework.web.bind.annotation.PathVariable;
-import org.springframework.web.bind.annotation.PostMapping;
-import org.springframework.web.bind.annotation.RequestBody;
-import org.springframework.web.bind.annotation.RequestMapping;
-import org.springframework.web.bind.annotation.RestController;
+import org.springframework.web.bind.annotation.*;
 
 @RestController
 @RequestMapping("/api/products")
@@ -29,7 +24,7 @@ public class ProductController {
     ProductService productService;
 
     @PostMapping()
-    public ApiResponse<ProductResponse> createProduct(@RequestBody ProductCreateRequest request) {
+    public ApiResponse<ProductResponse> createProduct(@RequestBody ProductRequest request) {
 
         return ApiResponse.ok(productService.createProduct(request));
 
@@ -46,6 +41,20 @@ public class ProductController {
     public ApiResponse<ProductResponse> getProductById(@PathVariable Integer id) {
 
         return ApiResponse.ok(productService.getProductById(id));
+
+    }
+
+    @PutMapping("/{id}")
+    public ApiResponse<ProductResponse> updateProduct(@PathVariable Integer id, @RequestBody ProductRequest request) {
+
+        return ApiResponse.ok(productService.updateProduct(id, request));
+
+    }
+
+    @DeleteMapping("/{id}")
+    public ApiResponse<String> deleteProduct(@PathVariable Integer id) {
+
+        return ApiResponse.ok(productService.deleteProduct(id));
 
     }
 
