@@ -121,8 +121,7 @@ INSERT INTO warehouse (id, code, name, location, region, site_id) VALUES
 -- Khởi tạo tồn kho cho các kho tại HN
 INSERT INTO inventory (warehouse_id, product_id, quantity) VALUES
     (1, 1, 50),
-    (1, 2, 100),
-    (2, 1, 30);
+    (1, 2, 100);
 
 -- Dữ liệu khách hàng cục bộ tại HN
 INSERT INTO customer_identity (id, email, password, main_site_id) VALUES

@@ -1,6 +1,7 @@
 package com.example.csdlpt.service;
 
 import com.example.csdlpt.enums.ReplicationAction;
+import com.example.csdlpt.enums.SiteCode;
 import lombok.AccessLevel;
 
 import com.example.csdlpt.entity.Category;
@@ -72,14 +73,14 @@ public class ProductService {
 
     public List<ProductBasicResponse> getAllProducts() {
 
-        String localSiteCode = SiteContextHolder.getCurrentSite();
+        SiteCode localSiteCode = SiteContextHolder.getCurrentSite();
         log.info("Thực thi getProducts tại Local Site: {}", localSiteCode);
 
         List<ProductBasic> basics;
 
-        if ("DN".equals(localSiteCode)) {
+        if (SiteCode.DN == localSiteCode) {
             basics = danangProductRepository.findByIsActiveTrue();
-        } else if ("HCM".equals(localSiteCode)) {
+        } else if (SiteCode.HCM == localSiteCode) {
             basics = hcmProductRepository.findByIsActiveTrue();
         } else {
             // Mặc định hoặc HN
@@ -92,16 +93,16 @@ public class ProductService {
 
     public ProductResponse getProductById(Integer id) {
 
-        String localSiteCode = SiteContextHolder.getCurrentSite();
+        SiteCode localSiteCode = SiteContextHolder.getCurrentSite();
         log.info("Thực thi getProduct tại Local Site: {}", localSiteCode);
 
         ProductBasic basic;
         ProductDetail detail;
 
-        if ("DN".equals(localSiteCode)) {
+        if (SiteCode.DN == localSiteCode) {
             basic = danangProductRepository.findByIdAndIsActiveTrue(id)
                     .orElseThrow(() -> new AppException(ErrorCode.PRODUCT_NOT_FOUND));
-        } else if ("HCM".equals(localSiteCode)) {
+        } else if (SiteCode.HCM == localSiteCode) {
             basic = hcmProductRepository.findByIdAndIsActiveTrue(id)
                     .orElseThrow(() -> new AppException(ErrorCode.PRODUCT_NOT_FOUND));
         } else {
