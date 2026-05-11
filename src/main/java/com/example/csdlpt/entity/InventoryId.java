@@ -12,6 +12,7 @@ import java.util.Objects;
 @Setter
 @NoArgsConstructor
 @AllArgsConstructor
+@Builder
 public class InventoryId implements Serializable {
     @Column(name = "warehouse_id")
     private Integer warehouseId;

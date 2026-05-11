@@ -18,6 +18,7 @@ public enum ErrorCode {
 
     // ===== Kho hàng & Tồn kho (2xxx) =====
     INSUFFICIENT_STOCK(2001, "Số lượng hàng trong kho không đủ", HttpStatus.BAD_REQUEST),
+    WAREHOUSE_NOT_FOUND(2002, "Kho hàng không tồn tại", HttpStatus.NOT_FOUND),
 
     // ===== Thao tác DB (4xxx) =====
     CREATE_FAILED(4001, "Tạo mới dữ liệu thất bại", HttpStatus.INTERNAL_SERVER_ERROR),
