@@ -2,6 +2,7 @@ package com.example.csdlpt.interceptor;
 
 import com.example.csdlpt.context.SiteContextHolder;
 import com.example.csdlpt.entity.CustomerIdentity;
+import com.example.csdlpt.enums.SiteCode;
 import com.example.csdlpt.exception.AppException;
 import com.example.csdlpt.exception.ErrorCode;
 import com.example.csdlpt.repository.site_dn.DanangCustomerIdentityRepository;
@@ -49,8 +50,13 @@ public class SiteInterceptor implements HandlerInterceptor {
         String siteCode = customer.getMainSite().getSiteCode();
         log.info("Đã tìm thấy khách hàng ở chi nhánh: {}", siteCode);
 
-        // Set context
-        SiteContextHolder.setCurrentSite(siteCode);
+        // Set context (Chuyển String sang Enum an toàn)
+        try {
+            SiteContextHolder.setCurrentSite(SiteCode.valueOf(siteCode.toUpperCase()));
+        } catch (IllegalArgumentException e) {
+            log.error("SiteCode không hợp lệ từ DB: {}", siteCode);
+            throw new AppException(ErrorCode.INVALID_KEY, "Chi nhánh không hợp lệ trong hệ thống");
+        }
 
         return true; // Continue to Controller
     }

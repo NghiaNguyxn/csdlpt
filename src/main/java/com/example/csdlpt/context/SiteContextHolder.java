@@ -1,14 +1,16 @@
 package com.example.csdlpt.context;
 
+import com.example.csdlpt.enums.SiteCode;
+
 public class SiteContextHolder {
 
-    private static final ThreadLocal<String> CURRENT_SITE = new ThreadLocal<>();
+    private static final ThreadLocal<SiteCode> CURRENT_SITE = new ThreadLocal<>();
 
-    public static void setCurrentSite(String siteCode) {
+    public static void setCurrentSite(SiteCode siteCode) {
         CURRENT_SITE.set(siteCode);
     }
 
-    public static String getCurrentSite() {
+    public static SiteCode getCurrentSite() {
         return CURRENT_SITE.get();
     }
 
