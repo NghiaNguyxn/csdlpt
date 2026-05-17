@@ -3,7 +3,9 @@ package com.example.csdlpt.service;
 import com.example.csdlpt.entity.ReplicationLog;
 import com.example.csdlpt.enums.ReplicationAction;
 import com.example.csdlpt.enums.ReplicationStatus;
+import com.example.csdlpt.repository.site_dn.DanangCustomerIdentityRepository;
 import com.example.csdlpt.repository.site_dn.DanangProductRepository;
+import com.example.csdlpt.repository.site_hcm.HcmCustomerIdentityRepository;
 import com.example.csdlpt.repository.site_hcm.HcmProductRepository;
 import com.example.csdlpt.repository.site_hn.HanoiReplicationLogRepository;
 import lombok.AccessLevel;
@@ -22,6 +24,8 @@ public class ReplicationService {
 
     DanangProductRepository danangProductRepository;
     HcmProductRepository hcmProductRepository;
+    DanangCustomerIdentityRepository danangCustomerIdentityRepository;
+    HcmCustomerIdentityRepository hcmCustomerIdentityRepository;
     HanoiReplicationLogRepository logRepository;
 
     /**
@@ -57,6 +61,16 @@ public class ReplicationService {
     @Transactional(value = "hcmTransactionManager")
     public void replicateProductToHcm(Long id, String name, BigDecimal price, Integer categoryId, Boolean isActive) {
         hcmProductRepository.replicateProduct(id.intValue(), name, price, categoryId, isActive);
+    }
+
+    @Transactional(value = "danangTransactionManager")
+    public void replicateCustomerIdentityToDanang(Long id, String email, String password, Integer mainSiteId) {
+        danangCustomerIdentityRepository.replicateCustomerIdentity(id, email, password, mainSiteId);
+    }
+
+    @Transactional(value = "hcmTransactionManager")
+    public void replicateCustomerIdentityToHcm(Long id, String email, String password, Integer mainSiteId) {
+        hcmCustomerIdentityRepository.replicateCustomerIdentity(id, email, password, mainSiteId);
     }
 
     @Transactional(value = "hanoiTransactionManager")

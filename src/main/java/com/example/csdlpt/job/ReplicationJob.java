@@ -1,10 +1,12 @@
 package com.example.csdlpt.job;
 
+import com.example.csdlpt.entity.CustomerIdentity;
 import com.example.csdlpt.entity.ProductBasic;
 import com.example.csdlpt.entity.ReplicationLog;
 import com.example.csdlpt.enums.ReplicationStatus;
 import com.example.csdlpt.exception.AppException;
 import com.example.csdlpt.exception.ErrorCode;
+import com.example.csdlpt.repository.site_hn.HanoiCustomerIdentityRepository;
 import com.example.csdlpt.repository.site_hn.HanoiProductRepository;
 import com.example.csdlpt.repository.site_hn.HanoiReplicationLogRepository;
 import com.example.csdlpt.service.ReplicationService;
@@ -25,6 +27,7 @@ public class ReplicationJob {
 
     HanoiReplicationLogRepository logRepository;
     HanoiProductRepository hanoiProductRepository;
+    HanoiCustomerIdentityRepository hanoiCustomerIdentityRepository;
     ReplicationService replicationService;
 
     @Scheduled(fixedDelay = 10000) // Chạy 10 giây 1 lần
@@ -41,39 +44,10 @@ public class ReplicationJob {
 
         for (ReplicationLog logEntry : pendingLogs) {
             try {
-                // Chỉ xử lý table PRODUCT
                 if ("PRODUCT".equals(logEntry.getEntityType())) {
-
-                    // Lấy dữ liệu gốc từ Master (Hà Nội). 
-                    // Chú ý: Dùng findById thay vì findByIdAndIsActiveTrue vì ta muốn đồng bộ cả trạng thái is_active=false (Soft Delete)
-                    ProductBasic masterProduct = hanoiProductRepository.findById(logEntry.getEntityId().intValue())
-                            .orElseThrow(() -> new AppException(ErrorCode.PRODUCT_NOT_FOUND,
-                                    "Không tìm thấy Product ID=" + logEntry.getEntityId() + " tại Master!"));
-
-                    Integer categoryId = masterProduct.getCategory() != null ? masterProduct.getCategory().getId()
-                            : null;
-
-                    if ("DN".equals(logEntry.getTargetSite())) {
-                        replicationService.replicateProductToDanang(
-                                masterProduct.getId().longValue(),
-                                masterProduct.getName(),
-                                masterProduct.getPrice(),
-                                categoryId,
-                                masterProduct.getIsActive());
-                    } else if ("HCM".equals(logEntry.getTargetSite())) {
-                        replicationService.replicateProductToHcm(
-                                masterProduct.getId().longValue(),
-                                masterProduct.getName(),
-                                masterProduct.getPrice(),
-                                categoryId,
-                                masterProduct.getIsActive());
-                    }
-
-                    // Đánh dấu thành công
-                    replicationService.updateLogStatus(logEntry, ReplicationStatus.DONE, null);
-
-                    log.info("Đã đồng bộ thành công (Action: {}) Log ID {} sang Site {}", 
-                            logEntry.getAction(), logEntry.getId(), logEntry.getTargetSite());
+                    processProductReplication(logEntry);
+                } else if ("CUSTOMER_IDENTITY".equals(logEntry.getEntityType())) {
+                    processCustomerIdentityReplication(logEntry);
                 }
 
             } catch (Exception e) {
@@ -85,5 +59,64 @@ public class ReplicationJob {
                 }
             }
         }
+    }
+
+    private void processProductReplication(ReplicationLog logEntry) {
+        // Lấy dữ liệu gốc từ Master (Hà Nội).
+        // Chú ý: Dùng findById thay vì findByIdAndIsActiveTrue vì ta muốn đồng bộ cả trạng thái is_active=false (Soft Delete)
+        ProductBasic masterProduct = hanoiProductRepository.findById(logEntry.getEntityId().intValue())
+                .orElseThrow(() -> new AppException(ErrorCode.PRODUCT_NOT_FOUND,
+                        "Không tìm thấy Product ID=" + logEntry.getEntityId() + " tại Master!"));
+
+        Integer categoryId = masterProduct.getCategory() != null ? masterProduct.getCategory().getId() : null;
+
+        if ("DN".equals(logEntry.getTargetSite())) {
+            replicationService.replicateProductToDanang(
+                    masterProduct.getId().longValue(),
+                    masterProduct.getName(),
+                    masterProduct.getPrice(),
+                    categoryId,
+                    masterProduct.getIsActive());
+        } else if ("HCM".equals(logEntry.getTargetSite())) {
+            replicationService.replicateProductToHcm(
+                    masterProduct.getId().longValue(),
+                    masterProduct.getName(),
+                    masterProduct.getPrice(),
+                    categoryId,
+                    masterProduct.getIsActive());
+        }
+
+        replicationService.updateLogStatus(logEntry, ReplicationStatus.DONE, null);
+
+        log.info("Đã đồng bộ thành công (Action: {}) Log ID {} sang Site {}",
+                logEntry.getAction(), logEntry.getId(), logEntry.getTargetSite());
+    }
+
+    private void processCustomerIdentityReplication(ReplicationLog logEntry) {
+        // Lazy single-master: HN giữ bản mới nhất, DN/HCM nhận refresh transaction sau commit.
+        CustomerIdentity masterCustomer = hanoiCustomerIdentityRepository.findById(logEntry.getEntityId())
+                .orElseThrow(() -> new AppException(ErrorCode.INVALID_KEY,
+                        "Không tìm thấy CustomerIdentity ID=" + logEntry.getEntityId() + " tại Master!"));
+
+        Integer mainSiteId = masterCustomer.getMainSite().getId();
+
+        if ("DN".equals(logEntry.getTargetSite())) {
+            replicationService.replicateCustomerIdentityToDanang(
+                    masterCustomer.getId(),
+                    masterCustomer.getEmail(),
+                    masterCustomer.getPassword(),
+                    mainSiteId);
+        } else if ("HCM".equals(logEntry.getTargetSite())) {
+            replicationService.replicateCustomerIdentityToHcm(
+                    masterCustomer.getId(),
+                    masterCustomer.getEmail(),
+                    masterCustomer.getPassword(),
+                    mainSiteId);
+        }
+
+        replicationService.updateLogStatus(logEntry, ReplicationStatus.DONE, null);
+
+        log.info("Đã đồng bộ CustomerIdentity thành công (Action: {}) Log ID {} sang Site {}",
+                logEntry.getAction(), logEntry.getId(), logEntry.getTargetSite());
     }
 }
