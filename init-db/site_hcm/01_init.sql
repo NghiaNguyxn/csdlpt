@@ -134,6 +134,13 @@ INSERT INTO customer_identity (id, email, password, main_site_id) VALUES
 INSERT INTO customer_profile (id, main_site_id, name, phone, address) VALUES
     (3, 3, 'Le Van C', '0901234567', '789 Nguyen Hue, Quan 1, TP.HCM');
 
+-- Q5 CONTROL DATA: đơn 1002 chỉ xuất từ một kho, không được trả về trong Q5.
+INSERT INTO orders (id, customer_id, status, warehouse_id, site_id) VALUES
+    (1002, 3, 'COMPLETED', 3, 3);
+
+INSERT INTO order_detail (order_id, product_id, warehouse_id, quantity, price) VALUES
+    (1002, 2, 3, 1, 1200.00);
+
 -- CẬP NHẬT LẠI SEQUENCE CHO CÁC BẢNG CÓ KHÓA CHÍNH TỰ TĂNG (SERIAL)
 SELECT setval('category_id_seq', (SELECT MAX(id) FROM category));
 SELECT setval('product_basic_id_seq', (SELECT MAX(id) FROM product_basic));

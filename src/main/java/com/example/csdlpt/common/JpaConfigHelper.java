@@ -25,6 +25,8 @@ public class JpaConfigHelper {
         
         HashMap<String, Object> properties = new HashMap<>();
         properties.put("hibernate.hbm2ddl.auto", "none");
+        properties.put("hibernate.dialect", "org.hibernate.dialect.PostgreSQLDialect");
+        properties.put("hibernate.boot.allow_jdbc_metadata_access", "false");
         em.setJpaPropertyMap(properties);
         
         return em;

@@ -134,6 +134,14 @@ INSERT INTO customer_identity (id, email, password, main_site_id) VALUES
 INSERT INTO customer_profile (id, main_site_id, name, phone, address) VALUES
     (2, 2, 'Tran Thi B', '0987654321', '456 Le Duan, Hai Chau, Da Nang');
 
+-- Q5 DEMO: cùng order_id 1001 có thêm dòng xuất tại WH-DN-01.
+-- Coordinator hợp nhất các fragment order_detail theo order_id để phát hiện nhiều kho.
+INSERT INTO orders (id, customer_id, status, warehouse_id, site_id) VALUES
+    (1001, 1, 'PENDING', 2, 2);
+
+INSERT INTO order_detail (order_id, product_id, warehouse_id, quantity, price) VALUES
+    (1001, 1, 2, 1, 3000.00);
+
 -- CẬP NHẬT LẠI SEQUENCE CHO CÁC BẢNG CÓ KHÓA CHÍNH TỰ TĂNG (SERIAL)
 SELECT setval('category_id_seq', (SELECT MAX(id) FROM category));
 SELECT setval('product_basic_id_seq', (SELECT MAX(id) FROM product_basic));
