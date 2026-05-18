@@ -37,3 +37,4 @@ build/
 postman/
 
 /src/main/resources/application.properties
+doc/

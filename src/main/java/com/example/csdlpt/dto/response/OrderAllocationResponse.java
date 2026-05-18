@@ -1,14 +1,13 @@
-package com.example.csdlpt.dto.request;
+package com.example.csdlpt.dto.response;
 
 import com.example.csdlpt.enums.SiteCode;
-
+import lombok.AccessLevel;
 import lombok.AllArgsConstructor;
 import lombok.Builder;
 import lombok.Getter;
 import lombok.NoArgsConstructor;
 import lombok.Setter;
 import lombok.experimental.FieldDefaults;
-import lombok.AccessLevel;
 
 @Getter
 @Setter
@@ -16,11 +15,10 @@ import lombok.AccessLevel;
 @AllArgsConstructor
 @Builder
 @FieldDefaults(level = AccessLevel.PRIVATE)
-public class InventoryRequest {
+public class OrderAllocationResponse {
 
-    Integer productId;
+    SiteCode siteCode;
     Integer warehouseId;
+    Integer productId;
     Integer quantity;
-    SiteCode targetSite;
-
 }

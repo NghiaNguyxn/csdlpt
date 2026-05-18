@@ -37,6 +37,7 @@ CREATE TABLE inventory (
     warehouse_id INT REFERENCES warehouse(id),
     product_id INT REFERENCES product_basic(id),
     quantity INT NOT NULL DEFAULT 0 CHECK (quantity >= 0),
+    reserved_quantity INT NOT NULL DEFAULT 0 CHECK (reserved_quantity >= 0),
     PRIMARY KEY (warehouse_id, product_id)
 );
 
@@ -60,14 +61,13 @@ CREATE TABLE orders (
     order_date TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
     status VARCHAR(20) DEFAULT 'PENDING'
         CHECK (status IN ('PENDING', 'COMPLETED', 'CANCELLED')),
-    warehouse_id INT REFERENCES warehouse(id), -- kho chính xử lý
     site_id INT REFERENCES site(id) -- site tạo đơn
 );
 
 CREATE TABLE order_detail (
     order_id BIGINT REFERENCES orders(id),
     product_id INT REFERENCES product_basic(id),
-    warehouse_id INT REFERENCES warehouse(id),
+    warehouse_id INT NOT NULL,
     quantity INT NOT NULL CHECK (quantity > 0),
     price DECIMAL(15,2) NOT NULL CHECK (price >= 0),
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
@@ -91,6 +91,19 @@ CREATE TABLE transaction_log (
     transaction_id VARCHAR(100) PRIMARY KEY, -- Global Transaction ID (GTID)
     status VARCHAR(20) NOT NULL,             -- PREPARED, COMMITTED, ABORTED
     participants TEXT,                       -- Danh sách các site tham gia
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+);
+
+CREATE TABLE transaction_participant_log (
+    id SERIAL PRIMARY KEY,
+    transaction_id VARCHAR(100) NOT NULL,
+    site_code VARCHAR(10) NOT NULL,
+    warehouse_id INT NOT NULL,
+    product_id INT NOT NULL,
+    quantity INT NOT NULL CHECK (quantity > 0),
+    status VARCHAR(20) NOT NULL,
+    message TEXT,
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
     updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 );

@@ -31,10 +31,6 @@ public class Order {
     private OrderStatus status;
 
     @ManyToOne(fetch = FetchType.LAZY)
-    @JoinColumn(name = "warehouse_id")
-    private Warehouse warehouse;
-
-    @ManyToOne(fetch = FetchType.LAZY)
     @JoinColumn(name = "site_id")
     private Site site;
 }
