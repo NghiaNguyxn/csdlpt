@@ -1,6 +1,6 @@
 package com.example.csdlpt.dto.response;
 
-import java.util.List;
+import java.time.LocalDateTime;
 
 import lombok.AccessLevel;
 import lombok.AllArgsConstructor;
@@ -16,18 +16,17 @@ import lombok.experimental.FieldDefaults;
 @AllArgsConstructor
 @Builder
 @FieldDefaults(level = AccessLevel.PRIVATE)
-public class FallbackOrderResponse {
+public class TransactionEventLogResponse {
 
-    Long orderId;
+    Long id;
     String transactionId;
-    Long customerId;
-    Integer productId;
-    Integer requestedQuantity;
-    Integer fulfilledQuantity;
-    String primarySiteCode;
-    Integer primaryWarehouseId;
-    Boolean fallbackUsed;
-    String q2ReuseNote;
-    List<FallbackOrderAllocationResponse> allocations;
-
+    String eventType;
+    String actorRole;
+    String siteCode;
+    String resourceKey;
+    String lockMode;
+    String status;
+    Long waitMillis;
+    String message;
+    LocalDateTime createdAt;
 }

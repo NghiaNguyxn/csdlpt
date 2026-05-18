@@ -98,6 +98,20 @@ CREATE TABLE transaction_log (
     updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 );
 
+CREATE TABLE transaction_event_log (
+    id BIGSERIAL PRIMARY KEY,
+    transaction_id VARCHAR(100) NOT NULL,
+    event_type VARCHAR(50) NOT NULL,          -- TX_BEGIN, LOCK_REQUEST, LOCK_GRANTED, LOCK_TIMEOUT, TX_STATUS
+    actor_role VARCHAR(30) NOT NULL,          -- COORDINATOR, PARTICIPANT, LOCK_MANAGER
+    site_code VARCHAR(20),
+    resource_key VARCHAR(120),                -- Ví dụ: inventory[warehouseId=1,productId=2]
+    lock_mode VARCHAR(20),                    -- RL/WL theo giáo trình locking-based algorithms
+    status VARCHAR(30),                       -- INITIAL, WAIT, GRANTED, TIMEOUT, PREPARED, COMMITTED, ABORTED
+    wait_millis BIGINT,
+    message TEXT,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+);
+
 -- DATA REPLICATION: Dữ liệu dùng chung nhân bản ở tất cả các site
 INSERT INTO site (id, site_code, site_name) VALUES
     (1, 'HN', 'Chi nhánh Hà Nội'),
@@ -155,6 +169,7 @@ SELECT setval('site_id_seq', (SELECT MAX(id) FROM site));
 SELECT setval('warehouse_id_seq', (SELECT MAX(id) FROM warehouse));
 -- Không cần setval cho customer_identity vì dùng BIGINT (Snowflake/Manual ID)
 SELECT setval('replication_log_id_seq', COALESCE((SELECT MAX(id) FROM replication_log), 1));
+SELECT setval('transaction_event_log_id_seq', COALESCE((SELECT MAX(id) FROM transaction_event_log), 1));
 
 -- INDICES
 CREATE INDEX idx_inventory_product ON inventory(product_id);
@@ -165,3 +180,5 @@ CREATE INDEX idx_orders_date ON orders(order_date);
 CREATE INDEX idx_orders_site ON orders(site_id);
 CREATE INDEX idx_customer_identity_main_site ON customer_identity(main_site_id);
 CREATE INDEX idx_customer_profile_main_site ON customer_profile(main_site_id);
+CREATE INDEX idx_transaction_event_log_tx ON transaction_event_log(transaction_id);
+CREATE INDEX idx_transaction_event_log_created_at ON transaction_event_log(created_at);

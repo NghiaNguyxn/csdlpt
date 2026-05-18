@@ -24,5 +24,7 @@ public class FallbackOrderRequest {
     Integer primaryWarehouseId;
     Integer quantity;
     BigDecimal price;
+    Boolean simulateTimeout;
+    Long lockTimeoutMillis;
 
 }
