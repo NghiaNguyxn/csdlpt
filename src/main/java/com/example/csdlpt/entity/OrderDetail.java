@@ -28,11 +28,6 @@ public class OrderDetail {
     @JoinColumn(name = "product_id")
     private ProductBasic product;
 
-    @ManyToOne(fetch = FetchType.LAZY)
-    @MapsId("warehouseId")
-    @JoinColumn(name = "warehouse_id")
-    private Warehouse warehouse;
-
     @Column(nullable = false)
     private Integer quantity;
 
