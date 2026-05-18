@@ -1,5 +1,7 @@
 package com.example.csdlpt.dto.request;
 
+import com.example.csdlpt.enums.SiteCode;
+
 import lombok.AllArgsConstructor;
 import lombok.Builder;
 import lombok.Getter;
@@ -19,5 +21,6 @@ public class InventoryRequest {
     Integer productId;
     Integer warehouseId;
     Integer quantity;
+    SiteCode targetSite;
 
 }
