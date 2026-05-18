@@ -23,4 +23,8 @@ public interface HcmCustomerIdentityRepository extends JpaRepository<CustomerIde
             @Param("email") String email,
             @Param("password") String password,
             @Param("mainSiteId") Integer mainSiteId);
+
+    @Modifying
+    @Query(value = "DELETE FROM customer_identity WHERE id = :id", nativeQuery = true)
+    void deleteReplicatedCustomerIdentity(@Param("id") Long id);
 }
