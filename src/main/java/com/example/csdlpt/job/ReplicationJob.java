@@ -1,11 +1,13 @@
 package com.example.csdlpt.job;
 
 import com.example.csdlpt.entity.ProductBasic;
+import com.example.csdlpt.entity.Category;
 import com.example.csdlpt.entity.ReplicationLog;
 import com.example.csdlpt.enums.ReplicationStatus;
 import com.example.csdlpt.exception.AppException;
 import com.example.csdlpt.exception.ErrorCode;
 import com.example.csdlpt.repository.site_hn.HanoiProductRepository;
+import com.example.csdlpt.repository.site_hn.HanoiCategoryRepository;
 import com.example.csdlpt.repository.site_hn.HanoiReplicationLogRepository;
 import com.example.csdlpt.service.ReplicationService;
 import lombok.AccessLevel;
@@ -25,27 +27,24 @@ public class ReplicationJob {
 
     HanoiReplicationLogRepository logRepository;
     HanoiProductRepository hanoiProductRepository;
+    HanoiCategoryRepository hanoiCategoryRepository;
     ReplicationService replicationService;
 
-    @Scheduled(fixedDelay = 10000) // Chạy 10 giây 1 lần
+    @Scheduled(fixedDelay = 10000) 
     public void processPendingLogs() {
-        // Lấy tất cả các log đang chờ
+        
         List<ReplicationLog> pendingLogs = logRepository.findByStatusAndTargetSite(ReplicationStatus.PENDING, "DN");
         pendingLogs.addAll(logRepository.findByStatusAndTargetSite(ReplicationStatus.PENDING, "HCM"));
 
         if (pendingLogs.isEmpty()) {
-            return; // Không có gì để đồng bộ
+            return; 
         }
 
         log.info("Phát hiện {} bản ghi Replication Log cần đồng bộ...", pendingLogs.size());
 
         for (ReplicationLog logEntry : pendingLogs) {
             try {
-                // Chỉ xử lý table PRODUCT
                 if ("PRODUCT".equals(logEntry.getEntityType())) {
-
-                    // Lấy dữ liệu gốc từ Master (Hà Nội). 
-                    // Chú ý: Dùng findById thay vì findByIdAndIsActiveTrue vì ta muốn đồng bộ cả trạng thái is_active=false (Soft Delete)
                     ProductBasic masterProduct = hanoiProductRepository.findById(logEntry.getEntityId().intValue())
                             .orElseThrow(() -> new AppException(ErrorCode.PRODUCT_NOT_FOUND,
                                     "Không tìm thấy Product ID=" + logEntry.getEntityId() + " tại Master!"));
@@ -68,11 +67,26 @@ public class ReplicationJob {
                                 categoryId,
                                 masterProduct.getIsActive());
                     }
-
-                    // Đánh dấu thành công
                     replicationService.updateLogStatus(logEntry, ReplicationStatus.DONE, null);
+                    log.info("Đã đồng bộ PRODUCT thành công (Action: {}) Log ID {} sang Site {}",
+                            logEntry.getAction(), logEntry.getId(), logEntry.getTargetSite());
+                } else if ("CATEGORY".equals(logEntry.getEntityType())) {
+                    boolean delete = "DELETE".equals(logEntry.getAction());
+                    String categoryName = null;
+                    if (!delete) {
+                        Category masterCategory = hanoiCategoryRepository.findById(logEntry.getEntityId().intValue())
+                                .orElseThrow(() -> new AppException(ErrorCode.CATEGORY_NOT_FOUND,
+                                        "Không tìm thấy Category ID=" + logEntry.getEntityId() + " tại Master!"));
+                        categoryName = masterCategory.getName();
+                    }
 
-                    log.info("Đã đồng bộ thành công (Action: {}) Log ID {} sang Site {}", 
+                    if ("DN".equals(logEntry.getTargetSite())) {
+                        replicationService.replicateCategoryToDanang(logEntry.getEntityId().intValue(), categoryName, delete);
+                    } else if ("HCM".equals(logEntry.getTargetSite())) {
+                        replicationService.replicateCategoryToHcm(logEntry.getEntityId().intValue(), categoryName, delete);
+                    }
+                    replicationService.updateLogStatus(logEntry, ReplicationStatus.DONE, null);
+                    log.info("Đã đồng bộ CATEGORY thành công (Action: {}) Log ID {} sang Site {}",
                             logEntry.getAction(), logEntry.getId(), logEntry.getTargetSite());
                 }
 

@@ -37,8 +37,8 @@ public class InventoryController {
             @PathVariable Integer productId,
             @RequestParam(required = false) SiteCode siteCode) {
 
-        // Nếu client truyền siteCode (VD: ?siteCode=HN), ta lấy tồn kho ở HN.
-        // Nếu không truyền, Service sẽ tự lấy SiteCode từ Context.
+        
+        
         return ApiResponse.ok(inventoryService.getStockBySite(productId, siteCode));
 
     }

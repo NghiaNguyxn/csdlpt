@@ -6,4 +6,5 @@ import org.springframework.stereotype.Repository;
 
 @Repository
 public interface HanoiCategoryRepository extends JpaRepository<Category, Integer> {
+    boolean existsByNameIgnoreCase(String name);
 }

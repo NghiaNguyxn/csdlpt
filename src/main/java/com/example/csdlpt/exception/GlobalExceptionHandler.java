@@ -1,12 +1,10 @@
 package com.example.csdlpt.exception;
 
+import com.example.csdlpt.dto.response.ApiResponse;
+import lombok.extern.slf4j.Slf4j;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.ControllerAdvice;
 import org.springframework.web.bind.annotation.ExceptionHandler;
-
-import com.example.csdlpt.dto.response.ApiResponse;
-
-import lombok.extern.slf4j.Slf4j;
 
 @Slf4j
 @ControllerAdvice
@@ -14,7 +12,7 @@ public class GlobalExceptionHandler {
 
     @ExceptionHandler(value = Exception.class)
     ResponseEntity<ApiResponse<?>> handleException(Exception ex) {
-        log.error("Lỗi chưa xử lý: ", ex);
+        log.error("Unhandled Exception: ", ex);
         ApiResponse<?> response = new ApiResponse<>();
 
         response.setMessage(ErrorCode.UNCATEGORIED_EXCEPTION.getMessage());
@@ -27,7 +25,7 @@ public class GlobalExceptionHandler {
     @ExceptionHandler(value = AppException.class)
     ResponseEntity<ApiResponse<?>> handleAppException(AppException ex) {
         ErrorCode errorCode = ex.getErrorCode();
-
+        
         String message = (ex.getMessage() != null && !ex.getMessage().isBlank())
                 ? ex.getMessage()
                 : errorCode.getMessage();

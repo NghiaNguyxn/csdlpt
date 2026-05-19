@@ -32,15 +32,15 @@ public class SiteInterceptor implements HandlerInterceptor {
         String email = request.getHeader(EMAIL_HEADER);
 
         if (email == null || email.isBlank()) {
-            // Optional: If no email, default to Hanoi or throw an error. Let's force an
-            // error for strict demo.
+            
+            
             log.warn("Missing User-Email header");
             throw new AppException(ErrorCode.INVALID_KEY, "Thiếu header User-Email để xác định chi nhánh");
         }
 
         log.info("Bắt đầu truy vấn phân tán để tìm khách hàng có email: {}", email);
 
-        // Distributed Search Mechanism (Fragmentation Transparency)
+        
         CustomerIdentity customer = hanoiCustomerRepository.findByEmail(email)
                 .orElseGet(() -> danangCustomerRepository.findByEmail(email)
                         .orElseGet(() -> hcmCustomerRepository.findByEmail(email)
@@ -50,7 +50,7 @@ public class SiteInterceptor implements HandlerInterceptor {
         String siteCode = customer.getMainSite().getSiteCode();
         log.info("Đã tìm thấy khách hàng ở chi nhánh: {}", siteCode);
 
-        // Set context (Chuyển String sang Enum an toàn)
+        
         try {
             SiteContextHolder.setCurrentSite(SiteCode.valueOf(siteCode.toUpperCase()));
         } catch (IllegalArgumentException e) {
@@ -58,13 +58,13 @@ public class SiteInterceptor implements HandlerInterceptor {
             throw new AppException(ErrorCode.INVALID_KEY, "Chi nhánh không hợp lệ trong hệ thống");
         }
 
-        return true; // Continue to Controller
+        return true; 
     }
 
     @Override
     public void afterCompletion(HttpServletRequest request, HttpServletResponse response, Object handler, Exception ex)
             throws Exception {
-        // Prevent memory leaks by clearing the ThreadLocal variable
+        
         SiteContextHolder.clear();
     }
 }

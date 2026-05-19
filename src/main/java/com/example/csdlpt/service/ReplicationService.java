@@ -4,7 +4,9 @@ import com.example.csdlpt.entity.ReplicationLog;
 import com.example.csdlpt.enums.ReplicationAction;
 import com.example.csdlpt.enums.ReplicationStatus;
 import com.example.csdlpt.repository.site_dn.DanangProductRepository;
+import com.example.csdlpt.repository.site_dn.DanangCategoryRepository;
 import com.example.csdlpt.repository.site_hcm.HcmProductRepository;
+import com.example.csdlpt.repository.site_hcm.HcmCategoryRepository;
 import com.example.csdlpt.repository.site_hn.HanoiReplicationLogRepository;
 import lombok.AccessLevel;
 import lombok.RequiredArgsConstructor;
@@ -22,12 +24,14 @@ public class ReplicationService {
 
     DanangProductRepository danangProductRepository;
     HcmProductRepository hcmProductRepository;
+    DanangCategoryRepository danangCategoryRepository;
+    HcmCategoryRepository hcmCategoryRepository;
     HanoiReplicationLogRepository logRepository;
 
-    /**
-     * Ghi log nhân bản cho các site replica (DN, HCM).
-     * Thường gọi từ Master Site (HN).
-     */
+    
+
+
+
     @Transactional(value = "hanoiTransactionManager")
     public void logChange(Long entityId, String entityType, ReplicationAction action) {
         ReplicationLog logDN = ReplicationLog.builder()
@@ -57,6 +61,24 @@ public class ReplicationService {
     @Transactional(value = "hcmTransactionManager")
     public void replicateProductToHcm(Long id, String name, BigDecimal price, Integer categoryId, Boolean isActive) {
         hcmProductRepository.replicateProduct(id.intValue(), name, price, categoryId, isActive);
+    }
+
+    @Transactional(value = "danangTransactionManager")
+    public void replicateCategoryToDanang(Integer id, String name, boolean delete) {
+        if (delete) {
+            danangCategoryRepository.deleteCategoryReplica(id);
+        } else {
+            danangCategoryRepository.replicateCategory(id, name);
+        }
+    }
+
+    @Transactional(value = "hcmTransactionManager")
+    public void replicateCategoryToHcm(Integer id, String name, boolean delete) {
+        if (delete) {
+            hcmCategoryRepository.deleteCategoryReplica(id);
+        } else {
+            hcmCategoryRepository.replicateCategory(id, name);
+        }
     }
 
     @Transactional(value = "hanoiTransactionManager")

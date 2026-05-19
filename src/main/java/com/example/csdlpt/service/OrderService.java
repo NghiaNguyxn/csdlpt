@@ -1,390 +1,424 @@
 package com.example.csdlpt.service;
 
-import java.util.ArrayList;
-import java.util.Comparator;
-import java.util.LinkedHashMap;
-import java.util.List;
-import java.util.Map;
-import java.util.UUID;
-import java.util.stream.Collectors;
-
-import org.springframework.stereotype.Service;
-
-import com.example.csdlpt.context.SiteContextHolder;
-import com.example.csdlpt.dto.request.DistributedOrderItemRequest;
-import com.example.csdlpt.dto.request.DistributedOrderRequest;
-import com.example.csdlpt.dto.response.DistributedOrderResponse;
-import com.example.csdlpt.dto.response.OrderAllocationResponse;
+import com.example.csdlpt.dto.request.LocalOrderItemRequest;
+import com.example.csdlpt.dto.request.LocalOrderRequest;
+import com.example.csdlpt.dto.request.MultiOrderItemRequest;
+import com.example.csdlpt.dto.request.MultiOrderRequest;
+import com.example.csdlpt.dto.request.OrderAllocationRequest;
+import com.example.csdlpt.dto.request.OrderStatusRequest;
+import com.example.csdlpt.dto.response.OrderDetailResponse;
+import com.example.csdlpt.dto.response.OrderResponse;
 import com.example.csdlpt.entity.CustomerIdentity;
 import com.example.csdlpt.entity.Inventory;
-import com.example.csdlpt.entity.InventoryId;
 import com.example.csdlpt.entity.Order;
 import com.example.csdlpt.entity.OrderDetail;
 import com.example.csdlpt.entity.OrderDetailId;
 import com.example.csdlpt.entity.ProductBasic;
 import com.example.csdlpt.entity.TransactionLog;
+import com.example.csdlpt.entity.Warehouse;
 import com.example.csdlpt.enums.OrderStatus;
 import com.example.csdlpt.enums.SiteCode;
 import com.example.csdlpt.enums.TransactionStatus;
 import com.example.csdlpt.exception.AppException;
 import com.example.csdlpt.exception.ErrorCode;
-
-import lombok.AccessLevel;
+import com.example.csdlpt.repository.common.DistributedInventoryRepository;
+import com.example.csdlpt.repository.common.DistributedOrderDetailRepository;
+import com.example.csdlpt.repository.common.DistributedOrderRepository;
+import com.example.csdlpt.repository.common.DistributedTransactionLogRepository;
+import com.example.csdlpt.repository.site_dn.DanangCustomerIdentityRepository;
+import com.example.csdlpt.repository.site_dn.DanangOrderDetailRepository;
+import com.example.csdlpt.repository.site_dn.DanangOrderRepository;
+import com.example.csdlpt.repository.site_dn.DanangTransactionLogRepository;
+import com.example.csdlpt.repository.site_hcm.HcmCustomerIdentityRepository;
+import com.example.csdlpt.repository.site_hcm.HcmOrderDetailRepository;
+import com.example.csdlpt.repository.site_hcm.HcmOrderRepository;
+import com.example.csdlpt.repository.site_hcm.HcmTransactionLogRepository;
+import com.example.csdlpt.repository.site_hn.HanoiCustomerIdentityRepository;
+import com.example.csdlpt.repository.site_hn.HanoiOrderDetailRepository;
+import com.example.csdlpt.repository.site_hn.HanoiOrderRepository;
+import com.example.csdlpt.repository.site_hn.HanoiTransactionLogRepository;
 import lombok.RequiredArgsConstructor;
-import lombok.experimental.FieldDefaults;
-import lombok.extern.slf4j.Slf4j;
+import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Transactional;
+
+import java.math.BigDecimal;
+import java.util.ArrayList;
+import java.util.Comparator;
+import java.util.LinkedHashMap;
+import java.util.List;
+import java.util.Map;
+import java.util.Optional;
+import java.util.UUID;
 
 @Service
-@Slf4j
 @RequiredArgsConstructor
-@FieldDefaults(level = AccessLevel.PRIVATE, makeFinal = true)
 public class OrderService {
+    private final SiteRoutingService siteRoutingService;
 
-    SiteRoutingService siteRoutingService;
-    InventoryTransactionService inventoryTransactionService;
-    OrderPersistenceService orderPersistenceService;
+    private final HanoiOrderRepository hanoiOrderRepository;
+    private final DanangOrderRepository danangOrderRepository;
+    private final HcmOrderRepository hcmOrderRepository;
 
-    public DistributedOrderResponse placeDistributedOrder(DistributedOrderRequest request) {
-        List<OrderItem> items = normalizeItems(request);
+    private final HanoiOrderDetailRepository hanoiOrderDetailRepository;
+    private final DanangOrderDetailRepository danangOrderDetailRepository;
+    private final HcmOrderDetailRepository hcmOrderDetailRepository;
 
-        SiteCode localSiteCode = SiteContextHolder.getCurrentSite();
-        CustomerIdentity customer = siteRoutingService.findCustomerBySite(request.getCustomerId(), localSiteCode);
-        Map<Integer, ProductBasic> productsById = loadProducts(items, localSiteCode);
+    private final HanoiTransactionLogRepository hanoiTransactionLogRepository;
+    private final DanangTransactionLogRepository danangTransactionLogRepository;
+    private final HcmTransactionLogRepository hcmTransactionLogRepository;
 
-        Long orderId = generateOrderId();
-        String transactionId = "ORDER-" + orderId;
+    private final HanoiCustomerIdentityRepository hanoiCustomerIdentityRepository;
+    private final DanangCustomerIdentityRepository danangCustomerIdentityRepository;
+    private final HcmCustomerIdentityRepository hcmCustomerIdentityRepository;
 
-        List<OrderAllocation> allocations = allocateStock(items, localSiteCode);
-        String participants = toParticipants(allocations);
+    @Transactional("hanoiTransactionManager")
+    public OrderResponse createLocalHanoiOrder(LocalOrderRequest request) {
+        validateLocalOrder(request);
 
-        saveTransactionLog(localSiteCode, transactionId, TransactionStatus.PREPARED, participants);
-        log.info("2PC: coordinator ghi PREPARED, transactionId={}, participants={}", transactionId, participants);
-
-        List<OrderAllocation> preparedAllocations = new ArrayList<>();
-        Order order = buildOrder(orderId, customer);
-        List<OrderDetail> details = buildOrderDetails(orderId, order, allocations, productsById);
-
-        try {
-            prepareParticipants(transactionId, allocations, preparedAllocations, request.getSimulateVoteNoSite());
-            createOrder(localSiteCode, order, details);
-        } catch (RuntimeException ex) {
-            saveTransactionLog(localSiteCode, transactionId, TransactionStatus.ABORTED, participants);
-            abortParticipants(transactionId, preparedAllocations);
-            AppException abortException = toAbortException(transactionId, preparedAllocations, ex);
-            log.error("2PC: coordinator quyết định ABORT, transactionId={}, lý do={}",
-                    transactionId, abortException.getMessage(), ex);
-            throw abortException;
+        SiteCode localSite = SiteCode.HN;
+        Long orderId = request.getOrderId() != null ? request.getOrderId() : generateOrderId(localSite);
+        if (hanoiOrderRepository.existsById(orderId)) {
+            throw new AppException(ErrorCode.INVALID_KEY, "Mã đơn hàng đã tồn tại tại HN: " + orderId);
         }
 
-        saveTransactionLog(localSiteCode, transactionId, TransactionStatus.COMMITTED, participants);
-        log.info("2PC: coordinator quyết định COMMIT, transactionId={}", transactionId);
+        CustomerIdentity customer = hanoiCustomerIdentityRepository.findById(request.getCustomerId())
+                .orElseThrow(() -> new AppException(ErrorCode.INVALID_KEY,
+                        "Không tìm thấy customer tại HN"));
+        Warehouse warehouse = siteRoutingService.findWarehouseBySite(request.getWarehouseId(), localSite);
 
-        commitParticipants(transactionId, preparedAllocations);
+        Map<Integer, Integer> quantityByProduct = mergeLocalItems(request.getItems());
+        for (Map.Entry<Integer, Integer> entry : quantityByProduct.entrySet()) {
+            Integer productId = entry.getKey();
+            Integer quantity = entry.getValue();
 
-        return toResponse(orderId, transactionId, localSiteCode, OrderStatus.COMPLETED,
-                TransactionStatus.COMMITTED, allocations);
-    }
 
-    private Order buildOrder(Long orderId, CustomerIdentity customer) {
-        return Order.builder()
+            int systemQuantity = getSystemQuantity(productId);
+            if (systemQuantity < quantity) {
+                throw new AppException(ErrorCode.INSUFFICIENT_STOCK,
+                        "Tồn kho toàn hệ thống không đủ cho productId=" + productId);
+            }
+
+
+            siteRoutingService.findProductBySite(productId, localSite);
+            int updated = siteRoutingService.getInventoryRepository(localSite)
+                    .reduceStockIfEnough(warehouse.getId(), productId, quantity);
+            if (updated == 0) {
+                throw new AppException(ErrorCode.INSUFFICIENT_STOCK,
+                        "Kho HN không đủ tồn kho cho productId=" + productId);
+            }
+        }
+
+        Order order = Order.builder()
                 .id(orderId)
                 .customer(customer)
                 .status(OrderStatus.COMPLETED)
-                .site(customer.getMainSite())
+                .warehouse(warehouse)
+                .site(warehouse.getSite())
+                .build();
+        hanoiOrderRepository.save(order);
+
+        for (Map.Entry<Integer, Integer> entry : quantityByProduct.entrySet()) {
+            Integer productId = entry.getKey();
+            Integer quantity = entry.getValue();
+            ProductBasic product = siteRoutingService.findProductBySite(productId, localSite);
+            OrderDetail detail = OrderDetail.builder()
+                    .id(new OrderDetailId(orderId, productId, warehouse.getId()))
+                    .order(order)
+                    .product(product)
+                    .warehouse(warehouse)
+                    .quantity(quantity)
+                    .price(product.getPrice())
+                    .build();
+            hanoiOrderDetailRepository.save(detail);
+        }
+
+        return toResponse(hanoiOrderRepository.findById(orderId).orElse(order), localSite, null);
+    }
+
+    public OrderResponse createMultiWarehouseOrder(MultiOrderRequest request) {
+        validateMultiOrder(request);
+        SiteCode mainSite = parseSite(request.getMainSite());
+        Long orderId = request.getOrderId() != null ? request.getOrderId() : System.currentTimeMillis();
+        String txId = "TX-" + orderId + "-" + UUID.randomUUID();
+
+        DistributedOrderRepository orderRepo = orderRepo(mainSite);
+        DistributedOrderDetailRepository detailRepo = detailRepo(mainSite);
+        DistributedTransactionLogRepository txRepo = txRepo(mainSite);
+
+        List<OrderAllocationRequest> preparedAllocations = new ArrayList<>();
+        List<String> participantLogs = new ArrayList<>();
+        txRepo.save(TransactionLog.builder()
+                .transactionId(txId)
+                .status(TransactionStatus.PREPARED)
+                .participants("INIT")
+                .build());
+
+        try {
+
+            for (MultiOrderItemRequest item : request.getItems()) {
+                for (OrderAllocationRequest allocation : item.getAllocations()) {
+                    SiteCode allocationSite = parseSite(allocation.getSiteCode());
+                    siteRoutingService.findProductBySite(item.getProductId(), allocationSite);
+                    siteRoutingService.findWarehouseBySite(allocation.getWarehouseId(), allocationSite);
+                    DistributedInventoryRepository inventoryRepo = siteRoutingService.getInventoryRepository(allocationSite);
+                    int updated = inventoryRepo.reduceStockIfEnough(
+                            allocation.getWarehouseId(), item.getProductId(), allocation.getQuantity());
+                    if (updated == 0) {
+                        throw new AppException(ErrorCode.INSUFFICIENT_STOCK,
+                                "PREPARE thất bại tại site " + allocationSite + ": không đủ tồn kho");
+                    }
+                    preparedAllocations.add(allocation);
+                    participantLogs.add(allocationSite + ":PREPARED_COMMITTED(product=" + item.getProductId()
+                            + ",warehouse=" + allocation.getWarehouseId() + ",qty=" + allocation.getQuantity() + ")");
+                }
+            }
+
+            CustomerIdentity customer = customerRepo(mainSite).findById(request.getCustomerId())
+                    .orElseThrow(() -> new AppException(ErrorCode.INVALID_KEY,
+                            "Không tìm thấy customer tại site lưu đơn " + mainSite));
+            Warehouse mainWarehouse = siteRoutingService.findWarehouseBySite(request.getMainWarehouseId(), mainSite);
+
+            Order order = Order.builder()
+                    .id(orderId)
+                    .customer(customer)
+                    .status(OrderStatus.COMPLETED)
+                    .warehouse(mainWarehouse)
+                    .site(mainWarehouse.getSite())
+                    .build();
+            orderRepo.save(order);
+
+            for (MultiOrderItemRequest item : request.getItems()) {
+                ProductBasic productAtMainSite = siteRoutingService.findProductBySite(item.getProductId(), mainSite);
+                for (OrderAllocationRequest allocation : item.getAllocations()) {
+                    Warehouse allocationWarehouseInMainDb = siteRoutingService.findWarehouseBySite(allocation.getWarehouseId(), mainSite);
+                    OrderDetail detail = OrderDetail.builder()
+                            .id(new OrderDetailId(orderId, item.getProductId(), allocation.getWarehouseId()))
+                            .order(order)
+                            .product(productAtMainSite)
+                            .warehouse(allocationWarehouseInMainDb)
+                            .quantity(allocation.getQuantity())
+                            .price(productAtMainSite.getPrice())
+                            .build();
+                    detailRepo.save(detail);
+                }
+            }
+
+            updateTransaction(txRepo, txId, TransactionStatus.COMMITTED, String.join(" | ", participantLogs));
+            return toResponse(orderRepo.findById(orderId).orElse(order), mainSite, txId);
+        } catch (Exception exception) {
+            rollbackPrepared(request, preparedAllocations, participantLogs);
+            updateTransaction(txRepo, txId, TransactionStatus.ABORTED,
+                    String.join(" | ", participantLogs) + " | ABORTED: " + exception.getMessage());
+            if (exception instanceof AppException appException) {
+                throw appException;
+            }
+            throw new AppException(ErrorCode.CREATE_FAILED, exception.getMessage());
+        }
+    }
+
+    public List<OrderResponse> getOrders() {
+        List<OrderResponse> responses = new ArrayList<>();
+        for (SiteCode site : SiteCode.values()) {
+            orderRepo(site).findAll().forEach(order -> responses.add(toResponse(order, site, null)));
+        }
+        responses.sort(Comparator.comparing(OrderResponse::getId));
+        return responses;
+    }
+
+    public OrderResponse getOrderById(Long id) {
+        for (SiteCode site : SiteCode.values()) {
+            Optional<Order> order = orderRepo(site).findById(id);
+            if (order.isPresent()) {
+                return toResponse(order.get(), site, null);
+            }
+        }
+        throw new AppException(ErrorCode.ORDER_NOT_FOUND);
+    }
+
+    public OrderResponse updateStatus(Long id, OrderStatusRequest request) {
+        if (request == null || request.getStatus() == null) {
+            throw new AppException(ErrorCode.INVALID_KEY, "Trạng thái đơn hàng không hợp lệ");
+        }
+        for (SiteCode site : SiteCode.values()) {
+            Optional<Order> optionalOrder = orderRepo(site).findById(id);
+            if (optionalOrder.isPresent()) {
+                Order order = optionalOrder.get();
+                order.setStatus(request.getStatus());
+                orderRepo(site).save(order);
+                return toResponse(order, site, null);
+            }
+        }
+        throw new AppException(ErrorCode.ORDER_NOT_FOUND);
+    }
+
+    private void rollbackPrepared(MultiOrderRequest request, List<OrderAllocationRequest> preparedAllocations, List<String> participantLogs) {
+        for (MultiOrderItemRequest item : request.getItems()) {
+            for (OrderAllocationRequest allocation : item.getAllocations()) {
+                if (preparedAllocations.contains(allocation)) {
+                    SiteCode site = parseSite(allocation.getSiteCode());
+                    siteRoutingService.getInventoryRepository(site)
+                            .addStockBack(allocation.getWarehouseId(), item.getProductId(), allocation.getQuantity());
+                    participantLogs.add(site + ":ROLLBACK(product=" + item.getProductId()
+                            + ",warehouse=" + allocation.getWarehouseId() + ",qty=" + allocation.getQuantity() + ")");
+                }
+            }
+        }
+    }
+
+    private void updateTransaction(DistributedTransactionLogRepository txRepo, String txId,
+                                   TransactionStatus status, String participants) {
+        TransactionLog tx = txRepo.findById(txId).orElse(TransactionLog.builder()
+                .transactionId(txId)
+                .build());
+        tx.setStatus(status);
+        tx.setParticipants(participants);
+        txRepo.save(tx);
+    }
+
+    private OrderResponse toResponse(Order order, SiteCode sourceSite, String txId) {
+        List<OrderDetailResponse> details = detailRepo(sourceSite).findByOrder_Id(order.getId()).stream()
+                .map(detail -> toDetailResponse(detail, sourceSite))
+                .toList();
+        BigDecimal total = details.stream()
+                .map(OrderDetailResponse::getLineTotal)
+                .reduce(BigDecimal.ZERO, BigDecimal::add);
+        return OrderResponse.builder()
+                .id(order.getId())
+                .customerId(order.getCustomer() != null ? order.getCustomer().getId() : null)
+                .orderDate(order.getOrderDate())
+                .status(order.getStatus())
+                .warehouseId(order.getWarehouse() != null ? order.getWarehouse().getId() : null)
+                .siteId(order.getSite() != null ? order.getSite().getId() : null)
+                .sourceSite(sourceSite.name())
+                .totalAmount(total)
+                .details(details)
+                .transactionId(txId)
                 .build();
     }
 
-    private List<OrderDetail> buildOrderDetails(
-            Long orderId,
-            Order order,
-            List<OrderAllocation> allocations,
-            Map<Integer, ProductBasic> productsById) {
-        return allocations.stream()
-                .map(allocation -> {
-                    ProductBasic product = productsById.get(allocation.productId());
-                    return OrderDetail.builder()
-                            .id(OrderDetailId.builder()
-                                    .orderId(orderId)
-                                    .productId(allocation.productId())
-                                    .warehouseId(allocation.warehouseId())
-                                    .build())
-                            .order(order)
-                            .product(product)
-                            .quantity(allocation.quantity())
-                            .price(product.getPrice())
-                            .build();
-                })
-                .toList();
+    private OrderDetailResponse toDetailResponse(OrderDetail detail, SiteCode sourceSite) {
+        Integer productId = detail.getId().getProductId();
+        Integer warehouseId = detail.getId().getWarehouseId();
+        ProductBasic product = siteRoutingService.findProductBySite(productId, sourceSite);
+        Warehouse warehouse = siteRoutingService.findWarehouseBySite(warehouseId, sourceSite);
+        BigDecimal lineTotal = detail.getPrice().multiply(BigDecimal.valueOf(detail.getQuantity()));
+        return OrderDetailResponse.builder()
+                .orderId(detail.getId().getOrderId())
+                .productId(productId)
+                .productName(product.getName())
+                .warehouseId(warehouseId)
+                .warehouseCode(warehouse.getCode())
+                .quantity(detail.getQuantity())
+                .price(detail.getPrice())
+                .lineTotal(lineTotal)
+                .build();
     }
 
-    private List<OrderItem> normalizeItems(DistributedOrderRequest request) {
-        if (request.getCustomerId() == null) {
-            throw new AppException(ErrorCode.INVALID_KEY, "Thông tin khách hàng không hợp lệ");
+    private void validateLocalOrder(LocalOrderRequest request) {
+        if (request == null || request.getCustomerId() == null || request.getWarehouseId() == null
+                || request.getItems() == null || request.getItems().isEmpty()) {
+            throw new AppException(ErrorCode.INVALID_KEY, "Thiếu dữ liệu tạo đơn local HN");
         }
-
-        List<DistributedOrderItemRequest> requestItems = request.getItems();
-
-        if (requestItems == null || requestItems.isEmpty()) {
-            throw new AppException(ErrorCode.INVALID_KEY, "Đơn hàng phải có ít nhất một dòng sản phẩm");
+        if (request.getSiteCode() != null && !request.getSiteCode().isBlank()
+                && !SiteCode.HN.name().equals(request.getSiteCode().trim().toUpperCase())) {
+            throw new AppException(ErrorCode.INVALID_KEY,
+                    "API /api/orders/local của Hiển chỉ xử lý đơn local tại HN");
         }
-
-        Map<Integer, Integer> quantityByProduct = new LinkedHashMap<>();
-        for (DistributedOrderItemRequest item : requestItems) {
-            if (item.getProductId() == null || item.getQuantity() == null || item.getQuantity() <= 0) {
-                throw new AppException(ErrorCode.INVALID_KEY, "Thông tin sản phẩm trong đơn hàng không hợp lệ");
+        for (LocalOrderItemRequest item : request.getItems()) {
+            if (item == null || item.getProductId() == null || item.getQuantity() == null || item.getQuantity() <= 0) {
+                throw new AppException(ErrorCode.INVALID_KEY,
+                        "Mỗi item local phải có productId và quantity > 0");
             }
+        }
+    }
+
+    private Map<Integer, Integer> mergeLocalItems(List<LocalOrderItemRequest> items) {
+        Map<Integer, Integer> quantityByProduct = new LinkedHashMap<>();
+        for (LocalOrderItemRequest item : items) {
             quantityByProduct.merge(item.getProductId(), item.getQuantity(), Integer::sum);
         }
-
-        return quantityByProduct.entrySet().stream()
-                .map(entry -> new OrderItem(entry.getKey(), entry.getValue()))
-                .toList();
+        return quantityByProduct;
     }
 
-    private Map<Integer, ProductBasic> loadProducts(List<OrderItem> items, SiteCode localSiteCode) {
-        Map<Integer, ProductBasic> productsById = new LinkedHashMap<>();
-        for (OrderItem item : items) {
-            productsById.put(item.productId(), siteRoutingService.findProductBySite(item.productId(), localSiteCode));
-        }
-        return productsById;
-    }
-
-    private List<OrderAllocation> allocateStock(List<OrderItem> items, SiteCode localSiteCode) {
-        List<OrderAllocation> allocations = new ArrayList<>();
-        for (OrderItem item : items) {
-            allocations.addAll(allocateStock(item.productId(), item.quantity(), localSiteCode));
-        }
-        return allocations;
-    }
-
-    private List<OrderAllocation> allocateStock(Integer productId, Integer requestedQuantity, SiteCode localSiteCode) {
-        List<SiteCode> siteOrder = new ArrayList<>();
-        siteOrder.add(localSiteCode);
-        for (SiteCode siteCode : SiteCode.values()) {
-            if (siteCode != localSiteCode) {
-                siteOrder.add(siteCode);
-            }
-        }
-
-        int remaining = requestedQuantity;
-        List<OrderAllocation> allocations = new ArrayList<>();
-
-        for (SiteCode siteCode : siteOrder) {
-            if (remaining == 0) {
-                break;
-            }
-
-            List<Inventory> inventories = siteRoutingService.findInventoryByProductAndSite(productId, siteCode).stream()
-                    .filter(inventory -> inventory.getQuantity() != null && inventory.getQuantity() > 0)
-                    .sorted(Comparator.comparing(inventory -> inventory.getId().getWarehouseId()))
-                    .toList();
-
+    private int getSystemQuantity(Integer productId) {
+        int total = 0;
+        for (SiteCode site : SiteCode.values()) {
+            List<Inventory> inventories = siteRoutingService.getInventoryRepository(site).findByProductId(productId);
             for (Inventory inventory : inventories) {
-                if (remaining == 0) {
-                    break;
+                total += inventory.getQuantity() == null ? 0 : inventory.getQuantity();
+            }
+        }
+        return total;
+    }
+
+    private Long generateOrderId(SiteCode siteCode) {
+        long prefix = switch (siteCode) {
+            case DN -> 2_000_000_000_000L;
+            case HCM -> 3_000_000_000_000L;
+            default -> 1_000_000_000_000L;
+        };
+        long candidate = prefix + System.currentTimeMillis();
+        while (orderRepo(siteCode).existsById(candidate)) {
+            candidate++;
+        }
+        return candidate;
+    }
+
+    private void validateMultiOrder(MultiOrderRequest request) {
+        if (request == null || request.getCustomerId() == null || request.getMainSite() == null
+                || request.getMainWarehouseId() == null || request.getItems() == null || request.getItems().isEmpty()) {
+            throw new AppException(ErrorCode.INVALID_KEY, "Thiếu dữ liệu tạo đơn liên kho");
+        }
+        for (MultiOrderItemRequest item : request.getItems()) {
+            if (item.getProductId() == null || item.getAllocations() == null || item.getAllocations().isEmpty()) {
+                throw new AppException(ErrorCode.INVALID_KEY, "Mỗi item phải có productId và allocations");
+            }
+            for (OrderAllocationRequest allocation : item.getAllocations()) {
+                if (allocation.getSiteCode() == null || allocation.getWarehouseId() == null
+                        || allocation.getQuantity() == null || allocation.getQuantity() <= 0) {
+                    throw new AppException(ErrorCode.INVALID_KEY, "Allocation không hợp lệ");
                 }
-
-                int allocatedQuantity = Math.min(remaining, inventory.getQuantity());
-                allocations.add(new OrderAllocation(
-                        siteCode,
-                        inventory.getId().getWarehouseId(),
-                        productId,
-                        allocatedQuantity));
-                remaining -= allocatedQuantity;
-            }
-        }
-
-        if (remaining > 0) {
-            int availableQuantity = requestedQuantity - remaining;
-            throw new AppException(ErrorCode.INSUFFICIENT_STOCK,
-                    "Không đủ tồn kho khả dụng để tạo đơn hàng: sản phẩm id=" + productId
-                            + ", số lượng cần=" + requestedQuantity
-                            + ", số lượng có thể phân bổ=" + availableQuantity
-                            + ", còn thiếu=" + remaining
-                            + ". Giao dịch 2PC chưa được tạo nên không có participant cần ABORT.");
-        }
-
-        return allocations;
-    }
-
-    private void prepareParticipants(
-            String transactionId,
-            List<OrderAllocation> allocations,
-            List<OrderAllocation> preparedAllocations,
-            SiteCode simulateVoteNoSite) {
-        for (OrderAllocation allocation : allocations) {
-            InventoryId inventoryId = toInventoryId(allocation);
-
-            if (allocation.siteCode() == simulateVoteNoSite) {
-                String message = "Mô phỏng Vote NO tại site " + allocation.siteCode()
-                        + " trong pha PREPARE của 2PC: transactionId=" + transactionId
-                        + ", sản phẩm id=" + allocation.productId()
-                        + ", kho id=" + allocation.warehouseId()
-                        + ", số lượng cần giữ=" + allocation.quantity()
-                        + ". Coordinator sẽ ghi ABORT và hoàn tác các participant đã PREPARED.";
-                voteNo(transactionId, allocation, inventoryId, message);
-                throw new AppException(ErrorCode.SITE_CONNECTION_ERROR, message);
-            }
-
-            switch (allocation.siteCode()) {
-                case DN -> inventoryTransactionService.prepareReservationAtDanang(
-                        transactionId, inventoryId, allocation.quantity());
-                case HCM -> inventoryTransactionService.prepareReservationAtHcm(
-                        transactionId, inventoryId, allocation.quantity());
-                default -> inventoryTransactionService.prepareReservationAtHanoi(
-                        transactionId, inventoryId, allocation.quantity());
-            }
-
-            preparedAllocations.add(allocation);
-        }
-    }
-
-    private void commitParticipants(String transactionId, List<OrderAllocation> preparedAllocations) {
-        for (OrderAllocation allocation : preparedAllocations) {
-            InventoryId inventoryId = toInventoryId(allocation);
-
-            switch (allocation.siteCode()) {
-                case DN -> inventoryTransactionService.commitReservationAtDanang(
-                        transactionId, inventoryId, allocation.quantity());
-                case HCM -> inventoryTransactionService.commitReservationAtHcm(
-                        transactionId, inventoryId, allocation.quantity());
-                default -> inventoryTransactionService.commitReservationAtHanoi(
-                        transactionId, inventoryId, allocation.quantity());
             }
         }
     }
 
-    private void abortParticipants(String transactionId, List<OrderAllocation> preparedAllocations) {
-        for (OrderAllocation allocation : preparedAllocations) {
-            try {
-                InventoryId inventoryId = toInventoryId(allocation);
-
-                switch (allocation.siteCode()) {
-                    case DN -> inventoryTransactionService.abortReservationAtDanang(
-                            transactionId, inventoryId, allocation.quantity());
-                    case HCM -> inventoryTransactionService.abortReservationAtHcm(
-                            transactionId, inventoryId, allocation.quantity());
-                    default -> inventoryTransactionService.abortReservationAtHanoi(
-                            transactionId, inventoryId, allocation.quantity());
-                }
-            } catch (RuntimeException abortError) {
-                log.error("Không thể ABORT participant đã PREPARED, allocation={}", allocation, abortError);
-            }
+    private SiteCode parseSite(String siteCode) {
+        try {
+            return SiteCode.valueOf(siteCode.trim().toUpperCase());
+        } catch (Exception e) {
+            throw new AppException(ErrorCode.INVALID_KEY, "SiteCode không hợp lệ: " + siteCode);
         }
     }
 
-    private AppException toAbortException(
-            String transactionId,
-            List<OrderAllocation> preparedAllocations,
-            RuntimeException ex) {
-        ErrorCode errorCode = ex instanceof AppException appException
-                ? appException.getErrorCode()
-                : ErrorCode.ORDER_ABORTED;
-
-        String preparedParticipants = preparedAllocations.isEmpty()
-                ? "không có participant nào đã PREPARED"
-                : preparedAllocations.stream()
-                        .map(allocation -> allocation.siteCode().name()
-                                + "(warehouseId=" + allocation.warehouseId()
-                                + ", productId=" + allocation.productId()
-                                + ", quantity=" + allocation.quantity() + ")")
-                        .collect(Collectors.joining(", "));
-
-        String reason = ex.getMessage() == null || ex.getMessage().isBlank()
-                ? "không xác định"
-                : ex.getMessage();
-
-        return new AppException(errorCode,
-                "Giao dịch 2PC đã ABORT: transactionId=" + transactionId
-                        + ". Lý do: " + reason
-                        + ". Các participant đã PREPARED đã được yêu cầu hoàn tác: "
-                        + preparedParticipants + ".");
+    private DistributedOrderRepository orderRepo(SiteCode siteCode) {
+        return switch (siteCode) {
+            case DN -> danangOrderRepository;
+            case HCM -> hcmOrderRepository;
+            default -> hanoiOrderRepository;
+        };
     }
 
-    private void voteNo(String transactionId, OrderAllocation allocation, InventoryId inventoryId, String message) {
-        switch (allocation.siteCode()) {
-            case DN -> inventoryTransactionService.voteNoAtDanang(
-                    transactionId, inventoryId, allocation.quantity(), message);
-            case HCM -> inventoryTransactionService.voteNoAtHcm(
-                    transactionId, inventoryId, allocation.quantity(), message);
-            default -> inventoryTransactionService.voteNoAtHanoi(
-                    transactionId, inventoryId, allocation.quantity(), message);
-        }
+    private DistributedOrderDetailRepository detailRepo(SiteCode siteCode) {
+        return switch (siteCode) {
+            case DN -> danangOrderDetailRepository;
+            case HCM -> hcmOrderDetailRepository;
+            default -> hanoiOrderDetailRepository;
+        };
     }
 
-    private InventoryId toInventoryId(OrderAllocation allocation) {
-        return InventoryId.builder()
-                .warehouseId(allocation.warehouseId())
-                .productId(allocation.productId())
-                .build();
+    private DistributedTransactionLogRepository txRepo(SiteCode siteCode) {
+        return switch (siteCode) {
+            case DN -> danangTransactionLogRepository;
+            case HCM -> hcmTransactionLogRepository;
+            default -> hanoiTransactionLogRepository;
+        };
     }
 
-    private void saveTransactionLog(
-            SiteCode siteCode,
-            String transactionId,
-            TransactionStatus status,
-            String participants) {
-        TransactionLog transactionLog = TransactionLog.builder()
-                .transactionId(transactionId)
-                .status(status)
-                .participants(participants)
-                .build();
-
-        switch (siteCode) {
-            case DN -> orderPersistenceService.saveTransactionLogAtDanang(transactionLog);
-            case HCM -> orderPersistenceService.saveTransactionLogAtHcm(transactionLog);
-            default -> orderPersistenceService.saveTransactionLogAtHanoi(transactionLog);
-        }
-    }
-
-    private void createOrder(SiteCode siteCode, Order order, List<OrderDetail> details) {
-        switch (siteCode) {
-            case DN -> orderPersistenceService.createOrderAtDanang(order, details);
-            case HCM -> orderPersistenceService.createOrderAtHcm(order, details);
-            default -> orderPersistenceService.createOrderAtHanoi(order, details);
-        }
-    }
-
-    private DistributedOrderResponse toResponse(
-            Long orderId,
-            String transactionId,
-            SiteCode localSiteCode,
-            OrderStatus orderStatus,
-            TransactionStatus transactionStatus,
-            List<OrderAllocation> allocations) {
-        return DistributedOrderResponse.builder()
-                .orderId(orderId)
-                .transactionId(transactionId)
-                .localSiteCode(localSiteCode)
-                .orderStatus(orderStatus)
-                .transactionStatus(transactionStatus)
-                .allocations(allocations.stream()
-                        .map(allocation -> OrderAllocationResponse.builder()
-                                .siteCode(allocation.siteCode())
-                                .warehouseId(allocation.warehouseId())
-                                .productId(allocation.productId())
-                                .quantity(allocation.quantity())
-                                .build())
-                        .toList())
-                .build();
-    }
-
-    private String toParticipants(List<OrderAllocation> allocations) {
-        return allocations.stream()
-                .map(allocation -> allocation.siteCode().name()
-                        + ":warehouse=" + allocation.warehouseId()
-                        + ":product=" + allocation.productId()
-                        + ":quantity=" + allocation.quantity())
-                .collect(Collectors.joining(","));
-    }
-
-    private Long generateOrderId() {
-        return UUID.randomUUID().getMostSignificantBits() & Long.MAX_VALUE;
-    }
-
-    private record OrderItem(Integer productId, Integer quantity) {
-    }
-
-    private record OrderAllocation(SiteCode siteCode, Integer warehouseId, Integer productId, Integer quantity) {
+    private org.springframework.data.jpa.repository.JpaRepository<CustomerIdentity, Long> customerRepo(SiteCode siteCode) {
+        return switch (siteCode) {
+            case DN -> danangCustomerIdentityRepository;
+            case HCM -> hcmCustomerIdentityRepository;
+            default -> hanoiCustomerIdentityRepository;
+        };
     }
 }

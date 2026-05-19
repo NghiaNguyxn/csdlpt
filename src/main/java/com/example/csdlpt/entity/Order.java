@@ -16,7 +16,7 @@ import com.example.csdlpt.enums.OrderStatus;
 @Builder
 public class Order {
     @Id
-    private Long id; // BIGINT in SQL
+    private Long id; 
 
     @ManyToOne(fetch = FetchType.LAZY)
     @JoinColumn(name = "customer_id")
@@ -29,6 +29,10 @@ public class Order {
     @Enumerated(EnumType.STRING)
     @Column(length = 20)
     private OrderStatus status;
+
+    @ManyToOne(fetch = FetchType.LAZY)
+    @JoinColumn(name = "warehouse_id")
+    private Warehouse warehouse;
 
     @ManyToOne(fetch = FetchType.LAZY)
     @JoinColumn(name = "site_id")
