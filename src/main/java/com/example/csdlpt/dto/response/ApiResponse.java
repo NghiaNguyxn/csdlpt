@@ -1,8 +1,14 @@
 package com.example.csdlpt.dto.response;
 
 import com.fasterxml.jackson.annotation.JsonInclude;
-import lombok.*;
+
+import lombok.AccessLevel;
+import lombok.AllArgsConstructor;
+import lombok.Builder;
 import lombok.Builder.Default;
+import lombok.Getter;
+import lombok.NoArgsConstructor;
+import lombok.Setter;
 import lombok.experimental.FieldDefaults;
 
 @Getter
@@ -21,7 +27,7 @@ public class ApiResponse<T> {
 
     public static <T> ApiResponse<T> ok(T data) {
         return ApiResponse.<T>builder()
-                .message("Success")
+                .message("Thành công")
                 .result(data)
                 .build();
     }
@@ -39,5 +45,4 @@ public class ApiResponse<T> {
                 .message(msg)
                 .build();
     }
-
 }

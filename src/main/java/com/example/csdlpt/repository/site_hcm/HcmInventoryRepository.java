@@ -1,18 +1,17 @@
 package com.example.csdlpt.repository.site_hcm;
 
-import com.example.csdlpt.entity.Inventory;
-import com.example.csdlpt.entity.InventoryId;
-import org.springframework.data.jpa.repository.JpaRepository;
+import java.util.List;
+
 import org.springframework.data.jpa.repository.Query;
 import org.springframework.data.repository.query.Param;
 import org.springframework.stereotype.Repository;
 
-import java.util.List;
+import com.example.csdlpt.entity.Inventory;
+import com.example.csdlpt.repository.InventoryLockingRepository;
 
 @Repository
-public interface HcmInventoryRepository extends JpaRepository<Inventory, InventoryId> {
-    @Query(value = "SELECT * FROM inventory WHERE product_id = :productId", nativeQuery = true)
-    List<Inventory> findByProductId(@Param("productId") Integer productId);
+public interface HcmInventoryRepository extends InventoryLockingRepository {
+    List<Inventory> findByProductId(Integer productId);
 
     @Query(value = "SELECT COALESCE(SUM(quantity), 0) FROM inventory WHERE product_id = :productId", nativeQuery = true)
     Integer sumQuantityByProductId(@Param("productId") Integer productId);

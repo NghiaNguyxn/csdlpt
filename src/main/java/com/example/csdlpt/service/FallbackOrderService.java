@@ -175,7 +175,6 @@ public class FallbackOrderService {
                 .id(request.getOrderId())
                 .customer(CustomerIdentity.builder().id(request.getCustomerId()).build())
                 .status(OrderStatus.COMPLETED)
-                .warehouse(warehouse)
                 .site(Site.builder().id(siteId(allocation.siteCode())).build())
                 .build();
         orderRepository(allocation.siteCode()).save(order);
@@ -184,7 +183,6 @@ public class FallbackOrderService {
                 .id(new OrderDetailId(request.getOrderId(), request.getProductId(), warehouse.getId()))
                 .order(order)
                 .product(product)
-                .warehouse(warehouse)
                 .quantity(allocation.quantity())
                 .price(price)
                 .build();

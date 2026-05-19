@@ -37,6 +37,7 @@ CREATE TABLE inventory (
     warehouse_id INT REFERENCES warehouse(id),
     product_id INT REFERENCES product_basic(id),
     quantity INT NOT NULL DEFAULT 0 CHECK (quantity >= 0),
+    reserved_quantity INT NOT NULL DEFAULT 0 CHECK (reserved_quantity >= 0),
     PRIMARY KEY (warehouse_id, product_id)
 );
 
@@ -63,14 +64,13 @@ CREATE TABLE orders (
     order_date TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
     status VARCHAR(20) DEFAULT 'PENDING'
         CHECK (status IN ('PENDING', 'COMPLETED', 'CANCELLED')),
-    warehouse_id INT REFERENCES warehouse(id), -- kho chính xử lý
     site_id INT REFERENCES site(id) -- site tạo đơn
 );
 
 CREATE TABLE order_detail (
     order_id BIGINT REFERENCES orders(id),
     product_id INT REFERENCES product_basic(id),
-    warehouse_id INT REFERENCES warehouse(id),
+    warehouse_id INT NOT NULL,
     quantity INT NOT NULL CHECK (quantity > 0),
     price DECIMAL(15,2) NOT NULL CHECK (price >= 0),
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
@@ -110,6 +110,19 @@ CREATE TABLE transaction_event_log (
     wait_millis BIGINT,
     message TEXT,
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+);
+
+CREATE TABLE transaction_participant_log (
+    id SERIAL PRIMARY KEY,
+    transaction_id VARCHAR(100) NOT NULL,
+    site_code VARCHAR(10) NOT NULL,
+    warehouse_id INT NOT NULL,
+    product_id INT NOT NULL,
+    quantity INT NOT NULL CHECK (quantity > 0),
+    status VARCHAR(20) NOT NULL,
+    message TEXT,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 );
 
 -- DATA REPLICATION: Dữ liệu dùng chung nhân bản ở tất cả các site
@@ -164,6 +177,7 @@ SELECT setval('warehouse_id_seq', (SELECT MAX(id) FROM warehouse));
 -- Không cần setval cho customer_identity vì dùng BIGINT (Snowflake/Manual ID)
 SELECT setval('replication_log_id_seq', COALESCE((SELECT MAX(id) FROM replication_log), 1));
 SELECT setval('transaction_event_log_id_seq', COALESCE((SELECT MAX(id) FROM transaction_event_log), 1));
+SELECT setval('transaction_participant_log_id_seq', COALESCE((SELECT MAX(id) FROM transaction_participant_log), 1));
 
 -- INDICES
 CREATE INDEX idx_inventory_product ON inventory(product_id);
@@ -176,3 +190,4 @@ CREATE INDEX idx_customer_identity_main_site ON customer_identity(main_site_id);
 CREATE INDEX idx_customer_profile_main_site ON customer_profile(main_site_id);
 CREATE INDEX idx_transaction_event_log_tx ON transaction_event_log(transaction_id);
 CREATE INDEX idx_transaction_event_log_created_at ON transaction_event_log(created_at);
+CREATE INDEX idx_transaction_participant_log_tx ON transaction_participant_log(transaction_id);
