@@ -1,19 +1,21 @@
 package com.example.csdlpt.service;
 
+import java.math.BigDecimal;
+import java.util.List;
+
+import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Transactional;
+
 import com.example.csdlpt.entity.ReplicationLog;
 import com.example.csdlpt.enums.ReplicationAction;
 import com.example.csdlpt.enums.ReplicationStatus;
 import com.example.csdlpt.repository.site_dn.DanangProductRepository;
 import com.example.csdlpt.repository.site_hcm.HcmProductRepository;
 import com.example.csdlpt.repository.site_hn.HanoiReplicationLogRepository;
+
 import lombok.AccessLevel;
 import lombok.RequiredArgsConstructor;
 import lombok.experimental.FieldDefaults;
-import org.springframework.stereotype.Service;
-import org.springframework.transaction.annotation.Transactional;
-
-import java.math.BigDecimal;
-import java.util.List;
 
 @Service
 @RequiredArgsConstructor
@@ -24,12 +26,9 @@ public class ReplicationService {
     HcmProductRepository hcmProductRepository;
     HanoiReplicationLogRepository logRepository;
 
-    /**
-     * Ghi log nhân bản cho các site replica (DN, HCM).
-     * Thường gọi từ Master Site (HN).
-     */
     @Transactional(value = "hanoiTransactionManager")
     public void logChange(Long entityId, String entityType, ReplicationAction action) {
+        // Replication log được lưu ở HN, mỗi target site có một log riêng để retry độc lập.
         ReplicationLog logDN = ReplicationLog.builder()
                 .entityId(entityId)
                 .entityType(entityType)
@@ -60,12 +59,24 @@ public class ReplicationService {
     }
 
     @Transactional(value = "hanoiTransactionManager")
-    public void updateLogStatus(ReplicationLog logEntry, ReplicationStatus status, String errorMessage) {
-        logEntry.setStatus(status);
-        if (errorMessage != null) {
-            logEntry.setErrorMessage(errorMessage);
-            logEntry.setRetryCount(logEntry.getRetryCount() + 1);
-        }
+    public void markLogDone(ReplicationLog logEntry) {
+        logEntry.setStatus(ReplicationStatus.DONE);
+        logRepository.save(logEntry);
+    }
+
+    @Transactional(value = "hanoiTransactionManager")
+    public void markLogRetry(ReplicationLog logEntry, String errorMessage) {
+        // Chỉ tăng retry count ở bước retry; chuyển FAILED không tăng thêm lần nữa.
+        logEntry.setStatus(ReplicationStatus.PENDING);
+        logEntry.setErrorMessage(errorMessage);
+        logEntry.setRetryCount(logEntry.getRetryCount() + 1);
+        logRepository.save(logEntry);
+    }
+
+    @Transactional(value = "hanoiTransactionManager")
+    public void markLogFailed(ReplicationLog logEntry, String errorMessage) {
+        logEntry.setStatus(ReplicationStatus.FAILED);
+        logEntry.setErrorMessage(errorMessage);
         logRepository.save(logEntry);
     }
 }

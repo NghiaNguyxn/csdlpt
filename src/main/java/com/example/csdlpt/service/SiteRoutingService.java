@@ -36,25 +36,21 @@ import lombok.experimental.FieldDefaults;
 @FieldDefaults(level = AccessLevel.PRIVATE, makeFinal = true)
 public class SiteRoutingService {
 
-    // Hanoi Repositories
     HanoiProductRepository hanoiProductRepository;
     HanoiWarehouseRepository hanoiWarehouseRepository;
     HanoiInventoryRepository hanoiInventoryRepository;
     HanoiCustomerIdentityRepository hanoiCustomerIdentityRepository;
 
-    // Danang Repositories
     DanangProductRepository danangProductRepository;
     DanangWarehouseRepository danangWarehouseRepository;
     DanangInventoryRepository danangInventoryRepository;
     DanangCustomerIdentityRepository danangCustomerIdentityRepository;
 
-    // HCM Repositories
     HcmProductRepository hcmProductRepository;
     HcmWarehouseRepository hcmWarehouseRepository;
     HcmInventoryRepository hcmInventoryRepository;
     HcmCustomerIdentityRepository hcmCustomerIdentityRepository;
 
-    // Tìm kiếm Product theo Site và ném lỗi nếu không tồn tại
     public ProductBasic findProductBySite(Integer productId, SiteCode siteCode) {
         return switch (siteCode) {
             case DN -> danangProductRepository.findById(productId)
@@ -66,7 +62,6 @@ public class SiteRoutingService {
         };
     }
 
-    // Tìm kiếm Warehouse theo Site và ném lỗi nếu không tồn tại
     public Warehouse findWarehouseBySite(Integer warehouseId, SiteCode siteCode) {
         return switch (siteCode) {
             case DN -> danangWarehouseRepository.findById(warehouseId)
@@ -78,7 +73,6 @@ public class SiteRoutingService {
         };
     }
 
-    // Tìm kiếm tất cả các WareHouse theo Site
     public List<Warehouse> findAllWareHouseBySite(SiteCode siteCode) {
         return switch (siteCode) {
             case DN -> danangWarehouseRepository.findAll();
@@ -90,11 +84,14 @@ public class SiteRoutingService {
     public CustomerIdentity findCustomerBySite(Long customerId, SiteCode siteCode) {
         return switch (siteCode) {
             case DN -> danangCustomerIdentityRepository.findById(customerId)
-                    .orElseThrow(() -> new AppException(ErrorCode.CUSTOMER_NOT_FOUND, "Không tìm thấy khách hàng tại DN"));
+                    .orElseThrow(() -> new AppException(ErrorCode.CUSTOMER_NOT_FOUND,
+                            "Không tìm thấy khách hàng tại DN"));
             case HCM -> hcmCustomerIdentityRepository.findById(customerId)
-                    .orElseThrow(() -> new AppException(ErrorCode.CUSTOMER_NOT_FOUND, "Không tìm thấy khách hàng tại HCM"));
+                    .orElseThrow(() -> new AppException(ErrorCode.CUSTOMER_NOT_FOUND,
+                            "Không tìm thấy khách hàng tại HCM"));
             default -> hanoiCustomerIdentityRepository.findById(customerId)
-                    .orElseThrow(() -> new AppException(ErrorCode.CUSTOMER_NOT_FOUND, "Không tìm thấy khách hàng tại HN"));
+                    .orElseThrow(() -> new AppException(ErrorCode.CUSTOMER_NOT_FOUND,
+                            "Không tìm thấy khách hàng tại HN"));
         };
     }
 
@@ -113,7 +110,6 @@ public class SiteRoutingService {
                 .toList();
     }
 
-    // Lấy Inventory Repository tương ứng với Site
     public JpaRepository<Inventory, InventoryId> getInventoryRepository(SiteCode siteCode) {
         return switch (siteCode) {
             case DN -> danangInventoryRepository;
