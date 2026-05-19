@@ -163,11 +163,11 @@ public class InventoryService {
                 : SiteContextHolder.getCurrentSite();
     }
 
-    // Tránh delay do lazy replication.
     private Integer getSafeStock(Integer productId, SiteCode siteCode) {
         try {
             return getStockBySite(productId, siteCode).getQuantity();
         } catch (AppException e) {
+            log.warn("Không thể lấy tồn kho tại site {}, productId={}: {}", siteCode, productId, e.getMessage());
             return 0;
         }
     }

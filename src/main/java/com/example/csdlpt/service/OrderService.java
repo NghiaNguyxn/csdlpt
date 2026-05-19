@@ -40,6 +40,13 @@ import lombok.extern.slf4j.Slf4j;
 @FieldDefaults(level = AccessLevel.PRIVATE, makeFinal = true)
 public class OrderService {
 
+    private static final int MAX_REALLOCATION_ATTEMPTS = 2;
+    private static final String GLOBAL_STOCK_NOT_ENOUGH_MESSAGE =
+            "Không đủ tồn kho trên toàn hệ thống để đáp ứng đơn hàng. Vui lòng giảm số lượng hoặc chọn sản phẩm khác.";
+    private static final String STOCK_CHANGED_DURING_PROCESSING_MESSAGE =
+            "Đơn hàng chưa thể hoàn tất vì tồn kho đã thay đổi trong lúc xử lý. "
+                    + "Hệ thống đã thử phân bổ lại nhưng chưa giữ được đủ hàng. Vui lòng thử lại.";
+
     SiteRoutingService siteRoutingService;
     InventoryTransactionService inventoryTransactionService;
     OrderPersistenceService orderPersistenceService;
@@ -51,45 +58,105 @@ public class OrderService {
         CustomerIdentity customer = siteRoutingService.findCustomerBySite(request.getCustomerId(), localSiteCode);
         Map<Integer, ProductBasic> productsById = loadProducts(items, localSiteCode);
 
+        int maxAttempts = request.getSimulateVoteNoSite() == null ? MAX_REALLOCATION_ATTEMPTS : 1;
+        AppException lastAbortException = null;
+        for (int attempt = 1; attempt <= maxAttempts; attempt++) {
+            try {
+                return placeDistributedOrderAttempt(request, items, localSiteCode, customer, productsById,
+                        attempt, maxAttempts);
+            } catch (StockAllocationException ex) {
+                log.warn("Không đủ tồn kho toàn hệ thống ở bước phân bổ. Lý do kỹ thuật: {}", safeMessage(ex));
+                throw new AppException(ErrorCode.INSUFFICIENT_STOCK, GLOBAL_STOCK_NOT_ENOUGH_MESSAGE);
+            } catch (StockChangedDuringPrepareException ex) {
+                AppException userException = new AppException(ErrorCode.INSUFFICIENT_STOCK,
+                        STOCK_CHANGED_DURING_PROCESSING_MESSAGE);
+                if (!shouldRetryWithReallocation(request, attempt, maxAttempts)) {
+                    throw userException;
+                }
+
+                lastAbortException = userException;
+                log.warn("Đơn hàng bị tranh chấp tồn kho ở attempt {}/{}. Hệ thống sẽ đọc lại tồn kho và phân bổ lại. Lý do: {}",
+                        attempt, maxAttempts, safeMessage(ex));
+            } catch (AppException ex) {
+                throw ex;
+            }
+        }
+
+        throw lastAbortException;
+    }
+
+    private DistributedOrderResponse placeDistributedOrderAttempt(
+            DistributedOrderRequest request,
+            List<OrderItem> items,
+            SiteCode localSiteCode,
+            CustomerIdentity customer,
+            Map<Integer, ProductBasic> productsById,
+            int attempt,
+            int maxAttempts) {
         Long orderId = generateOrderId();
         String transactionId = "ORDER-" + orderId;
 
         List<OrderAllocation> allocations = allocateStock(items, localSiteCode);
         String participants = toParticipants(allocations);
 
+        // Coordinator log: bắt đầu pha 1 của 2PC và ghi danh sách participant dự kiến.
         saveTransactionLog(localSiteCode, transactionId, TransactionStatus.PREPARED, participants);
-        log.info("2PC: coordinator ghi PREPARED, transactionId={}, participants={}", transactionId, participants);
+        log.info("2PC: coordinator ghi PREPARED, transactionId={}, attempt={}/{}, participants={}",
+                transactionId, attempt, maxAttempts, participants);
 
         List<OrderAllocation> preparedAllocations = new ArrayList<>();
-        Order order = buildOrder(orderId, customer);
+        // Order giữ PENDING cho tới khi mọi participant áp dụng Global COMMIT thành công.
+        Order order = buildOrder(orderId, customer, OrderStatus.PENDING);
         List<OrderDetail> details = buildOrderDetails(orderId, order, allocations, productsById);
 
         try {
+            // Phase 1: gửi PREPARE tới từng participant. Chỉ participant đã Vote YES mới được abort nếu lỗi.
             prepareParticipants(transactionId, allocations, preparedAllocations, request.getSimulateVoteNoSite());
             createOrder(localSiteCode, order, details);
         } catch (RuntimeException ex) {
             saveTransactionLog(localSiteCode, transactionId, TransactionStatus.ABORTED, participants);
             abortParticipants(transactionId, preparedAllocations);
             AppException abortException = toAbortException(transactionId, preparedAllocations, ex);
-            log.error("2PC: coordinator quyết định ABORT, transactionId={}, lý do={}",
-                    transactionId, abortException.getMessage(), ex);
+            log.error("2PC: coordinator quyết định ABORT, transactionId={}, attempt={}/{}, lý do={}",
+                    transactionId, attempt, maxAttempts, abortException.getMessage(), ex);
+            if (abortException.getErrorCode() == ErrorCode.INSUFFICIENT_STOCK) {
+                throw new StockChangedDuringPrepareException(abortException);
+            }
             throw abortException;
         }
 
         saveTransactionLog(localSiteCode, transactionId, TransactionStatus.COMMITTED, participants);
         log.info("2PC: coordinator quyết định COMMIT, transactionId={}", transactionId);
 
-        commitParticipants(transactionId, preparedAllocations);
+        try {
+            // Phase 2: sau Global COMMIT không được ABORT nữa; lỗi ở đây cần retry commit/recovery.
+            commitParticipants(transactionId, preparedAllocations);
+            updateOrderStatus(localSiteCode, orderId, OrderStatus.COMPLETED);
+        } catch (RuntimeException ex) {
+            throw new AppException(ErrorCode.SITE_CONNECTION_ERROR,
+                    "Giao dịch 2PC đã có quyết định COMMIT nhưng chưa áp dụng xong ở tất cả participant: "
+                            + "transactionId=" + transactionId
+                            + ". Không được ABORT giao dịch này; cần chạy lại thao tác COMMIT/kiểm tra participant log. "
+                            + "Lý do: " + safeMessage(ex));
+        }
 
         return toResponse(orderId, transactionId, localSiteCode, OrderStatus.COMPLETED,
                 TransactionStatus.COMMITTED, allocations);
     }
 
-    private Order buildOrder(Long orderId, CustomerIdentity customer) {
+    private boolean shouldRetryWithReallocation(
+            DistributedOrderRequest request,
+            int attempt,
+            int maxAttempts) {
+        return request.getSimulateVoteNoSite() == null
+                && attempt < maxAttempts;
+    }
+
+    private Order buildOrder(Long orderId, CustomerIdentity customer, OrderStatus status) {
         return Order.builder()
                 .id(orderId)
                 .customer(customer)
-                .status(OrderStatus.COMPLETED)
+                .status(status)
                 .site(customer.getMainSite())
                 .build();
     }
@@ -169,6 +236,7 @@ public class OrderService {
         int remaining = requestedQuantity;
         List<OrderAllocation> allocations = new ArrayList<>();
 
+        // Ưu tiên kho ở site local, sau đó mới lấy bù từ các site khác để giảm chi phí phân tán.
         for (SiteCode siteCode : siteOrder) {
             if (remaining == 0) {
                 break;
@@ -196,7 +264,7 @@ public class OrderService {
 
         if (remaining > 0) {
             int availableQuantity = requestedQuantity - remaining;
-            throw new AppException(ErrorCode.INSUFFICIENT_STOCK,
+            throw new StockAllocationException(
                     "Không đủ tồn kho khả dụng để tạo đơn hàng: sản phẩm id=" + productId
                             + ", số lượng cần=" + requestedQuantity
                             + ", số lượng có thể phân bổ=" + availableQuantity
@@ -215,6 +283,7 @@ public class OrderService {
         for (OrderAllocation allocation : allocations) {
             InventoryId inventoryId = toInventoryId(allocation);
 
+            // simulateVoteNoSite chỉ phục vụ demo nhánh ABORT của 2PC, không phải logic nghiệp vụ thật.
             if (allocation.siteCode() == simulateVoteNoSite) {
                 String message = "Mô phỏng Vote NO tại site " + allocation.siteCode()
                         + " trong pha PREPARE của 2PC: transactionId=" + transactionId
@@ -290,13 +359,9 @@ public class OrderService {
                                 + ", quantity=" + allocation.quantity() + ")")
                         .collect(Collectors.joining(", "));
 
-        String reason = ex.getMessage() == null || ex.getMessage().isBlank()
-                ? "không xác định"
-                : ex.getMessage();
-
         return new AppException(errorCode,
                 "Giao dịch 2PC đã ABORT: transactionId=" + transactionId
-                        + ". Lý do: " + reason
+                        + ". Lý do: " + safeMessage(ex)
                         + ". Các participant đã PREPARED đã được yêu cầu hoàn tác: "
                         + preparedParticipants + ".");
     }
@@ -345,6 +410,14 @@ public class OrderService {
         }
     }
 
+    private void updateOrderStatus(SiteCode siteCode, Long orderId, OrderStatus status) {
+        switch (siteCode) {
+            case DN -> orderPersistenceService.updateOrderStatusAtDanang(orderId, status);
+            case HCM -> orderPersistenceService.updateOrderStatusAtHcm(orderId, status);
+            default -> orderPersistenceService.updateOrderStatusAtHanoi(orderId, status);
+        }
+    }
+
     private DistributedOrderResponse toResponse(
             Long orderId,
             String transactionId,
@@ -378,6 +451,12 @@ public class OrderService {
                 .collect(Collectors.joining(","));
     }
 
+    private String safeMessage(RuntimeException ex) {
+        return ex.getMessage() == null || ex.getMessage().isBlank()
+                ? "không xác định"
+                : ex.getMessage();
+    }
+
     private Long generateOrderId() {
         return UUID.randomUUID().getMostSignificantBits() & Long.MAX_VALUE;
     }
@@ -386,5 +465,17 @@ public class OrderService {
     }
 
     private record OrderAllocation(SiteCode siteCode, Integer warehouseId, Integer productId, Integer quantity) {
+    }
+
+    private static class StockAllocationException extends RuntimeException {
+        StockAllocationException(String message) {
+            super(message);
+        }
+    }
+
+    private static class StockChangedDuringPrepareException extends RuntimeException {
+        StockChangedDuringPrepareException(Throwable cause) {
+            super(cause.getMessage(), cause);
+        }
     }
 }
