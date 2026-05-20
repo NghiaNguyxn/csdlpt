@@ -123,11 +123,10 @@ INSERT INTO product_basic (id, name, price, category_id) VALUES
     (2, 'iPhone 15 Pro', 1200, 2);
 
 -- FRAGMENTATION: Phân mảnh ngang (Primary Horizontal) cho Warehouse miền Trung
-INSERT INTO warehouse (id, code, name, location, region, site_id) VALUES
-    (2, 'WH-DN-01', 'Kho Hải Châu', 'Đà Nẵng', 'Central', 2);
-
-
-
+    INSERT INTO warehouse (id, code, name, location, region, site_id) VALUES
+        (1, 'WH-HN-01', 'Kho Hoan Kiem', 'Ha Noi', 'North', 1),
+        (2, 'WH-DN-01', 'Kho Hai Chau', 'Da Nang', 'Central', 2),
+        (3, 'WH-HCM-01', 'Kho Quan 1', 'TP.HCM', 'South', 3);
 -- Khởi tạo tồn kho cho các kho tại DN
 INSERT INTO inventory (warehouse_id, product_id, quantity) VALUES
     (2, 1, 20),
@@ -140,23 +139,11 @@ INSERT INTO customer_identity (id, email, password, main_site_id) VALUES
 INSERT INTO customer_profile (id, name, phone, address) VALUES
     (2, 'Tran Thi B', '0987654321', '456 Le Duan, Hai Chau, Da Nang');
 
-
-
--- SAMPLE ORDERS FOR REPORT DEMO (kept main schema: orders has no warehouse_id)
-INSERT INTO orders (id, customer_id, order_date, status, site_id) VALUES
-    (2001, 2, '2026-05-02 11:00:00', 'COMPLETED', 2);
-INSERT INTO order_detail (order_id, product_id, warehouse_id, quantity, price) VALUES
-    (2001, 1, 2, 3, 3000),
-    (2001, 2, 2, 2, 1200);
-
 -- CẬP NHẬT LẠI SEQUENCE CHO CÁC BẢNG CÓ KHÓA CHÍNH TỰ TĂNG (SERIAL)
 SELECT setval('category_id_seq', (SELECT MAX(id) FROM category));
 SELECT setval('product_basic_id_seq', (SELECT MAX(id) FROM product_basic));
 SELECT setval('site_id_seq', (SELECT MAX(id) FROM site));
-SELECT setval(
-               pg_get_serial_sequence('warehouse', 'id'),
-               GREATEST((SELECT COALESCE(MAX(id), 0) FROM warehouse), 3)
-       );
+SELECT setval('warehouse_id_seq', (SELECT MAX(id) FROM warehouse));
 -- Không cần setval cho customer_identity vì dùng BIGINT (Snowflake/Manual ID)
 SELECT setval('replication_log_id_seq', COALESCE((SELECT MAX(id) FROM replication_log), 1));
 

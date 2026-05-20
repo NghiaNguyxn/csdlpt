@@ -124,12 +124,9 @@ INSERT INTO product_basic (id, name, price, category_id) VALUES
 
 -- FRAGMENTATION: Phân mảnh ngang (Primary Horizontal) cho Warehouse miền Nam
 INSERT INTO warehouse (id, code, name, location, region, site_id) VALUES
-    (3, 'WH-HCM-01', 'Kho Quận 1', 'TP.HCM', 'South', 3);
-
-SELECT setval(
-               pg_get_serial_sequence('warehouse', 'id'),
-               GREATEST((SELECT COALESCE(MAX(id), 0) FROM warehouse), 3)
-       );
+    (1, 'WH-HN-01', 'Kho Hoan Kiem', 'Ha Noi', 'North', 1),
+    (2, 'WH-DN-01', 'Kho Hai Chau', 'Da Nang', 'Central', 2),
+    (3, 'WH-HCM-01', 'Kho Quan 1', 'TP.HCM', 'South', 3);
 
 -- Khởi tạo tồn kho cho các kho tại HCM
 INSERT INTO inventory (warehouse_id, product_id, quantity) VALUES
@@ -143,26 +140,11 @@ INSERT INTO customer_identity (id, email, password, main_site_id) VALUES
 INSERT INTO customer_profile (id, name, phone, address) VALUES
     (3, 'Le Van C', '0901234567', '789 Nguyen Hue, Quan 1, TP.HCM');
 
-
-
--- SAMPLE ORDERS FOR REPORT DEMO (kept main schema: orders has no warehouse_id)
-INSERT INTO orders (id, customer_id, order_date, status, site_id) VALUES
-    (3001, 3, '2026-05-03 12:00:00', 'COMPLETED', 3),
-    (3002, 3, '2026-05-04 14:00:00', 'COMPLETED', 3);
-INSERT INTO order_detail (order_id, product_id, warehouse_id, quantity, price) VALUES
-    (3001, 1, 3, 1, 3000),
-    (3001, 2, 3, 5, 1200),
-    (3002, 1, 2, 3, 3000),
-    (3002, 1, 3, 5, 3000);
-
 -- CẬP NHẬT LẠI SEQUENCE CHO CÁC BẢNG CÓ KHÓA CHÍNH TỰ TĂNG (SERIAL)
 SELECT setval('category_id_seq', (SELECT MAX(id) FROM category));
 SELECT setval('product_basic_id_seq', (SELECT MAX(id) FROM product_basic));
 SELECT setval('site_id_seq', (SELECT MAX(id) FROM site));
-SELECT setval(
-               pg_get_serial_sequence('warehouse', 'id'),
-               GREATEST((SELECT COALESCE(MAX(id), 0) FROM warehouse), 3)
-       );
+SELECT setval('warehouse_id_seq', (SELECT MAX(id) FROM warehouse));
 -- Không cần setval cho customer_identity vì dùng BIGINT (Snowflake/Manual ID)
 SELECT setval('replication_log_id_seq', COALESCE((SELECT MAX(id) FROM replication_log), 1));
 

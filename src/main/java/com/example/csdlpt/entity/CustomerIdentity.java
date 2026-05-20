@@ -12,7 +12,7 @@ import lombok.*;
 @Builder
 public class CustomerIdentity {
     @Id
-    private Long id; 
+    private Long id; // BIGINT, generated at Master or using Snowflake
 
     @Column(nullable = false, unique = true, length = 100)
     private String email;

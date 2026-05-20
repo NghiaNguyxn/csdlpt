@@ -17,7 +17,6 @@ import com.example.csdlpt.entity.Warehouse;
 import com.example.csdlpt.enums.SiteCode;
 import com.example.csdlpt.exception.AppException;
 import com.example.csdlpt.exception.ErrorCode;
-import com.example.csdlpt.mapper.InventoryMapper;
 
 import lombok.AccessLevel;
 import lombok.RequiredArgsConstructor;
@@ -31,20 +30,16 @@ import lombok.extern.slf4j.Slf4j;
 public class InventoryService {
 
     SiteRoutingService siteRoutingService;
-    InventoryMapper inventoryMapper;
+    InventoryTransactionService inventoryTransactionService;
 
     public StockResponse getStockBySite(Integer productId, SiteCode siteCode) {
-
         if (siteCode == null) {
             siteCode = SiteContextHolder.getCurrentSite();
             log.info("Thực thi getInventoryBySite tại Local Site: {}", siteCode);
         }
 
         List<Warehouse> warehouses = siteRoutingService.findAllWareHouseBySite(siteCode);
-
-        ProductBasic product = siteRoutingService
-                .findProductBySite(productId, siteCode);
-
+        ProductBasic product = siteRoutingService.findProductBySite(productId, siteCode);
         var inventoryRepo = siteRoutingService.getInventoryRepository(siteCode);
 
         Integer totalQuantity = warehouses.stream()
@@ -62,9 +57,7 @@ public class InventoryService {
                                     .quantity(0)
                                     .build());
 
-                    int quantityValue = inventory.getQuantity() == null ? 0 : inventory.getQuantity();
-                    int reservedValue = inventory.getReservedQuantity() == null ? 0 : inventory.getReservedQuantity();
-                    return quantityValue - reservedValue;
+                    return inventory.getQuantity();
                 })
                 .reduce(0, Integer::sum, Integer::sum);
 
@@ -73,11 +66,9 @@ public class InventoryService {
                 .quantity(totalQuantity)
                 .siteCode(siteCode.name())
                 .build();
-
     }
 
     public StockResponse getGlobalStock(Integer productId) {
-
         SiteCode localSiteCode = SiteContextHolder.getCurrentSite();
         log.info("Thực thi getGlobalStock tại Local Site: {}", localSiteCode);
 
@@ -91,11 +82,9 @@ public class InventoryService {
                 .quantity(totalQuantity)
                 .siteCode("GLOBAL")
                 .build();
-
     }
 
     public List<AvailableSiteResponse> findSiteWithEnoughStock(Integer productId, Integer quantity) {
-
         List<AvailableSiteResponse> availableSite = new ArrayList<>();
 
         for (SiteCode site : SiteCode.values()) {
@@ -115,84 +104,71 @@ public class InventoryService {
         }
 
         return availableSite;
-
     }
 
     public InventoryResponse addStock(InventoryRequest request) {
-
         SiteCode localSiteCode = SiteContextHolder.getCurrentSite();
-        log.info("Thực thi addStock tại Local Site: {}", localSiteCode);
+        SiteCode targetSiteCode = resolveTargetSite(request);
+        log.info("Thực thi addStock từ Local Site: {} tới Target Site: {}", localSiteCode, targetSiteCode);
 
-        ProductBasic product = siteRoutingService
-                .findProductBySite(request.getProductId(), localSiteCode);
-
-        Warehouse warehouse = siteRoutingService
-                .findWarehouseBySite(request.getWarehouseId(), localSiteCode);
-
-        var inventoryRepo = siteRoutingService.getInventoryRepository(localSiteCode);
+        ProductBasic product = siteRoutingService.findProductBySite(request.getProductId(), targetSiteCode);
+        Warehouse warehouse = siteRoutingService.findWarehouseBySite(request.getWarehouseId(), targetSiteCode);
 
         InventoryId inventoryId = InventoryId.builder()
                 .warehouseId(warehouse.getId())
                 .productId(product.getId())
                 .build();
 
-        Inventory inventory = inventoryRepo.findById(inventoryId)
-                .orElseGet(() -> Inventory.builder()
-                        .id(inventoryId)
-                        .product(product)
-                        .warehouse(warehouse)
-                        .quantity(0)
-                        .build());
-
-        inventory.setQuantity(inventory.getQuantity() + request.getQuantity());
-
-        Inventory saved = inventoryRepo.save(inventory);
-
-        return inventoryMapper.toResponse(saved);
-
+        return switch (targetSiteCode) {
+            case DN -> inventoryTransactionService.addStockAtDanang(
+                    inventoryId, product, warehouse, request.getQuantity());
+            case HCM -> inventoryTransactionService.addStockAtHcm(
+                    inventoryId, product, warehouse, request.getQuantity());
+            default -> inventoryTransactionService.addStockAtHanoi(
+                    inventoryId, product, warehouse, request.getQuantity());
+        };
     }
 
     public InventoryResponse reduceStock(InventoryRequest request) {
-
         SiteCode localSiteCode = SiteContextHolder.getCurrentSite();
-        log.info("Thực thi reduceStock tại Local Site: {}", localSiteCode);
+        SiteCode targetSiteCode = resolveTargetSite(request);
+        log.info("Thực thi reduceStock từ Local Site: {} tới Target Site: {}", localSiteCode, targetSiteCode);
 
-        Warehouse warehouse = siteRoutingService
-                .findWarehouseBySite(request.getWarehouseId(), localSiteCode);
-
-        ProductBasic product = siteRoutingService
-                .findProductBySite(request.getProductId(), localSiteCode);
-
-        var inventoryRepo = siteRoutingService.getInventoryRepository(localSiteCode);
+        Warehouse warehouse = siteRoutingService.findWarehouseBySite(request.getWarehouseId(), targetSiteCode);
+        ProductBasic product = siteRoutingService.findProductBySite(request.getProductId(), targetSiteCode);
 
         InventoryId inventoryId = InventoryId.builder()
                 .warehouseId(warehouse.getId())
                 .productId(product.getId())
                 .build();
 
-        
-        
-        int updatedRows = inventoryRepo.reduceStockIfEnough(warehouse.getId(), product.getId(), request.getQuantity());
-        if (updatedRows == 0) {
-            throw new AppException(ErrorCode.INSUFFICIENT_STOCK);
-        }
-
-        Inventory saved = inventoryRepo.findById(inventoryId)
-                .orElseThrow(() -> new AppException(ErrorCode.INSUFFICIENT_STOCK));
-
-        return inventoryMapper.toResponse(saved);
-
+        return switch (targetSiteCode) {
+            case DN -> inventoryTransactionService.reduceStockAtDanang(
+                    inventoryId, request.getQuantity());
+            case HCM -> inventoryTransactionService.reduceStockAtHcm(
+                    inventoryId, request.getQuantity());
+            default -> inventoryTransactionService.reduceStockAtHanoi(
+                    inventoryId, request.getQuantity());
+        };
     }
 
-    
-    private Integer getSafeStock(Integer productId, SiteCode siteCode) {
+    private SiteCode resolveTargetSite(InventoryRequest request) {
+        if (request.getProductId() == null || request.getWarehouseId() == null
+                || request.getQuantity() == null || request.getQuantity() <= 0) {
+            throw new AppException(ErrorCode.INVALID_KEY, "Thông tin tồn kho không hợp lệ");
+        }
 
+        return request.getTargetSite() != null
+                ? request.getTargetSite()
+                : SiteContextHolder.getCurrentSite();
+    }
+
+    private Integer getSafeStock(Integer productId, SiteCode siteCode) {
         try {
             return getStockBySite(productId, siteCode).getQuantity();
         } catch (AppException e) {
+            log.warn("Không thể lấy tồn kho tại site {}, productId={}: {}", siteCode, productId, e.getMessage());
             return 0;
         }
-
     }
-
 }
