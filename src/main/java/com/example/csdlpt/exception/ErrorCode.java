@@ -24,7 +24,8 @@ public enum ErrorCode {
 
     // ==== Khách hàng & đơn hàng (3xxx) =====
     CUSTOMER_NOT_FOUND(3001, "Không tìm thấy khách hàng", HttpStatus.NOT_FOUND),
-    ORDER_ABORTED(3002, "Giao dịch đặt hàng đã bị ABORT", HttpStatus.BAD_REQUEST),
+    ORDER_NOT_FOUND(3002, "Không tìm thấy đơn hàng", HttpStatus.NOT_FOUND),
+    ORDER_ABORTED(3003, "Giao dịch đặt hàng đã bị ABORT", HttpStatus.BAD_REQUEST),
 
     // ===== Thao tác DB (4xxx) =====
     CREATE_FAILED(4001, "Tạo mới dữ liệu thất bại", HttpStatus.INTERNAL_SERVER_ERROR),

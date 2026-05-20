@@ -223,6 +223,7 @@ public class InventoryTransactionService {
 
         log.info("{} cần khóa cho 2PC PREPARE với id: {}, transactionId={}", site, inventoryId, transactionId);
 
+        // PREPARE dùng pessimistic lock cục bộ, rồi chuyển hàng khả dụng sang reserved_quantity.
         Inventory inventory = inventoryRepository.findByIdForUpdate(inventoryId)
                 .orElseThrow(() -> {
                     String message = "Vote NO tại site " + site
@@ -255,6 +256,7 @@ public class InventoryTransactionService {
         inventory.setReservedQuantity(getReservedQuantity(inventory) + quantity);
         inventoryRepository.save(inventory);
 
+        // Participant log là bằng chứng site này đã Vote YES và có hàng đang được giữ chỗ.
         saveParticipantLog(site, logRepository, transactionId, inventoryId, quantity,
                 TransactionStatus.PREPARED, "Vote YES");
         log.info("{} 2PC PREPARE thành công, transactionId={}, id={}", site, transactionId, inventoryId);
@@ -270,6 +272,7 @@ public class InventoryTransactionService {
 
         log.info("{} cần khóa cho 2PC COMMIT với id: {}, transactionId={}", site, inventoryId, transactionId);
 
+        // COMMIT xác nhận bán hàng: reserved_quantity giảm, quantity không cộng lại.
         Inventory inventory = inventoryRepository.findByIdForUpdate(inventoryId)
                 .orElseThrow(() -> new AppException(ErrorCode.INSUFFICIENT_STOCK,
                         "Không tìm thấy tồn kho tại site " + site
@@ -305,6 +308,7 @@ public class InventoryTransactionService {
 
         log.info("{} cần khóa cho 2PC ABORT với id: {}, transactionId={}", site, inventoryId, transactionId);
 
+        // ABORT hoàn tác reservation: trả reserved_quantity về quantity khả dụng.
         Inventory inventory = inventoryRepository.findByIdForUpdate(inventoryId)
                 .orElseThrow(() -> new AppException(ErrorCode.INSUFFICIENT_STOCK,
                         "Không tìm thấy tồn kho tại site " + site
@@ -353,5 +357,4 @@ public class InventoryTransactionService {
     private Integer getReservedQuantity(Inventory inventory) {
         return inventory.getReservedQuantity() == null ? 0 : inventory.getReservedQuantity();
     }
-
 }
