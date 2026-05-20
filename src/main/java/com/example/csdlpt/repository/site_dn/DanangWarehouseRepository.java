@@ -16,8 +16,8 @@ public interface DanangWarehouseRepository extends JpaRepository<Warehouse, Inte
 
     boolean existsByCodeIgnoreCase(String code);
 
-    @Transactional
-    @Modifying
+    @Transactional("danangTransactionManager")
+    @Modifying(clearAutomatically = true, flushAutomatically = true)
     @Query(value = """
         INSERT INTO warehouse (id, code, name, location, region, site_id)
         VALUES (:id, :code, :name, :location, :region, :siteId)

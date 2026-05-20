@@ -37,6 +37,7 @@ CREATE TABLE inventory (
     warehouse_id INT REFERENCES warehouse(id),
     product_id INT REFERENCES product_basic(id),
     quantity INT NOT NULL DEFAULT 0 CHECK (quantity >= 0),
+    reserved_quantity INT NOT NULL DEFAULT 0 CHECK (reserved_quantity >= 0),
     PRIMARY KEY (warehouse_id, product_id)
 );
 
@@ -60,20 +61,20 @@ CREATE TABLE orders (
     order_date TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
     status VARCHAR(20) DEFAULT 'PENDING'
         CHECK (status IN ('PENDING', 'COMPLETED', 'CANCELLED')),
-    warehouse_id INT REFERENCES warehouse(id), -- kho chính xử lý
     site_id INT REFERENCES site(id) -- site tạo đơn
 );
 
 CREATE TABLE order_detail (
     order_id BIGINT REFERENCES orders(id),
     product_id INT REFERENCES product_basic(id),
-    warehouse_id INT REFERENCES warehouse(id),
+    warehouse_id INT NOT NULL,
     quantity INT NOT NULL CHECK (quantity > 0),
     price DECIMAL(15,2) NOT NULL CHECK (price >= 0),
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
     PRIMARY KEY (order_id, product_id, warehouse_id)
 );
 
+-- BẢNG PHỤC VỤ DỮ LIỆU PHÂN TÁN (REPLICATION & DISTRIBUTED TRANSACTIONS)
 CREATE TABLE replication_log (
     id SERIAL PRIMARY KEY,
     entity_id BIGINT NOT NULL,
@@ -94,6 +95,20 @@ CREATE TABLE transaction_log (
     updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 );
 
+CREATE TABLE transaction_participant_log (
+    id SERIAL PRIMARY KEY,
+    transaction_id VARCHAR(100) NOT NULL,
+    site_code VARCHAR(10) NOT NULL,
+    warehouse_id INT NOT NULL,
+    product_id INT NOT NULL,
+    quantity INT NOT NULL CHECK (quantity > 0),
+    status VARCHAR(20) NOT NULL,
+    message TEXT,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+);
+
+-- DATA REPLICATION: Dữ liệu dùng chung nhân bản ở tất cả các site
 INSERT INTO site (id, site_code, site_name) VALUES
     (1, 'HN', 'Chi nhánh Hà Nội'),
     (2, 'DN', 'Chi nhánh Đà Nẵng'),
@@ -107,41 +122,56 @@ INSERT INTO product_basic (id, name, price, category_id) VALUES
     (1, 'Macbook M3', 3000, 1),
     (2, 'iPhone 15 Pro', 1200, 2);
 
+-- Dữ liệu chi tiết (Vertical Fragmentation - Thường đặt tại Master Site)
 INSERT INTO product_detail (product_id, description) VALUES
     (1, 'Macbook Pro M3 với hiệu năng cực mạnh từ chip 3nm Apple silicon'),
     (2, 'iPhone 15 Pro vỏ Titanium siêu bền và nhẹ');
 
+-- FRAGMENTATION: Phân mảnh ngang (Primary Horizontal) cho Warehouse miền Bắc
 INSERT INTO warehouse (id, code, name, location, region, site_id) VALUES
-    (1, 'WH-HN-01', 'Kho Hoàn Kiếm', 'Hà Nội', 'North', 1),
-    (2, 'WH-DN-01', 'Kho Hải Châu', 'Đà Nẵng', 'Central', 2),
-    (3, 'WH-HCM-01', 'Kho Quận 1', 'TP.HCM', 'South', 3);
+    (1, 'WH-HN-01', 'Kho Hoàn Kiếm', 'Hà Nội', 'North', 1);
 
+SELECT setval(
+               pg_get_serial_sequence('warehouse', 'id'),
+               GREATEST((SELECT COALESCE(MAX(id), 0) FROM warehouse), 3)
+       );
+
+-- Khởi tạo tồn kho cho các kho tại HN
 INSERT INTO inventory (warehouse_id, product_id, quantity) VALUES
     (1, 1, 50),
     (1, 2, 100);
 
+-- Dữ liệu khách hàng cục bộ tại HN
 INSERT INTO customer_identity (id, email, password, main_site_id) VALUES
      (1, 'ana@gmail.com', '123456', 1);
 
 INSERT INTO customer_profile (id, name, phone, address) VALUES
      (1, 'Nguyen Van A', '0912345678', '123 Pho Hue, Hai Ba Trung, Ha Noi');
 
+
+
+-- SAMPLE ORDERS FOR REPORT DEMO (kept main schema: orders has no warehouse_id)
+INSERT INTO orders (id, customer_id, order_date, status, site_id) VALUES
+    (1001, 1, '2026-05-01 10:00:00', 'COMPLETED', 1);
+INSERT INTO order_detail (order_id, product_id, warehouse_id, quantity, price) VALUES
+    (1001, 1, 1, 2, 3000),
+    (1001, 2, 1, 1, 1200);
+
+-- CẬP NHẬT LẠI SEQUENCE CHO CÁC BẢNG CÓ KHÓA CHÍNH TỰ TĂNG (SERIAL)
 SELECT setval('category_id_seq', (SELECT MAX(id) FROM category));
 SELECT setval('product_basic_id_seq', (SELECT MAX(id) FROM product_basic));
 SELECT setval('site_id_seq', (SELECT MAX(id) FROM site));
-SELECT setval('warehouse_id_seq', (SELECT MAX(id) FROM warehouse));
+SELECT setval(
+               pg_get_serial_sequence('warehouse', 'id'),
+               GREATEST((SELECT COALESCE(MAX(id), 0) FROM warehouse), 3)
+       );
+-- Không cần setval cho customer_identity vì dùng BIGINT (Snowflake/Manual ID)
 SELECT setval('replication_log_id_seq', COALESCE((SELECT MAX(id) FROM replication_log), 1));
 
+-- INDICES
 CREATE INDEX idx_inventory_product ON inventory(product_id);
 CREATE INDEX idx_inventory_warehouse ON inventory(warehouse_id);
 CREATE INDEX idx_order_detail_product ON order_detail(product_id);
 CREATE INDEX idx_order_detail_warehouse ON order_detail(warehouse_id);
 CREATE INDEX idx_orders_date ON orders(order_date);
 CREATE INDEX idx_orders_site ON orders(site_id);
-
-INSERT INTO orders (id, customer_id, order_date, status, warehouse_id, site_id) VALUES
-    (1001, 1, '2026-05-01 10:00:00', 'COMPLETED', 1, 1);
-
-INSERT INTO order_detail (order_id, product_id, warehouse_id, quantity, price) VALUES
-    (1001, 1, 1, 2, 3000),
-    (1001, 2, 1, 1, 1200);

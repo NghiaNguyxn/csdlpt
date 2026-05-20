@@ -62,7 +62,9 @@ public class InventoryService {
                                     .quantity(0)
                                     .build());
 
-                    return inventory.getQuantity();
+                    int quantityValue = inventory.getQuantity() == null ? 0 : inventory.getQuantity();
+                    int reservedValue = inventory.getReservedQuantity() == null ? 0 : inventory.getReservedQuantity();
+                    return quantityValue - reservedValue;
                 })
                 .reduce(0, Integer::sum, Integer::sum);
 

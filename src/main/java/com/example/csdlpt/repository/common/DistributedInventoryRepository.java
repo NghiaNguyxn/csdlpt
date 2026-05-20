@@ -21,7 +21,8 @@ public interface DistributedInventoryRepository extends JpaRepository<Inventory,
     @Transactional
     @Modifying(clearAutomatically = true, flushAutomatically = true)
     @Query(value = "UPDATE inventory SET quantity = quantity - :quantity " +
-            "WHERE warehouse_id = :warehouseId AND product_id = :productId AND quantity >= :quantity", nativeQuery = true)
+            "WHERE warehouse_id = :warehouseId AND product_id = :productId " +
+            "AND quantity - reserved_quantity >= :quantity", nativeQuery = true)
     int reduceStockIfEnough(@Param("warehouseId") Integer warehouseId,
                             @Param("productId") Integer productId,
                             @Param("quantity") Integer quantity);
@@ -37,4 +38,53 @@ public interface DistributedInventoryRepository extends JpaRepository<Inventory,
     @Query(value = "SELECT quantity FROM inventory WHERE warehouse_id = :warehouseId AND product_id = :productId", nativeQuery = true)
     Integer findQuantityNative(@Param("warehouseId") Integer warehouseId,
                                @Param("productId") Integer productId);
+
+    @Transactional
+    @Modifying(clearAutomatically = true, flushAutomatically = true)
+    @Query(value = """
+            UPDATE inventory
+            SET reserved_quantity = reserved_quantity + :quantity
+            WHERE warehouse_id = :warehouseId
+              AND product_id = :productId
+              AND quantity - reserved_quantity >= :quantity
+            """, nativeQuery = true)
+    int prepareStock(@Param("warehouseId") Integer warehouseId,
+                     @Param("productId") Integer productId,
+                     @Param("quantity") Integer quantity);
+
+    @Transactional
+    @Modifying(clearAutomatically = true, flushAutomatically = true)
+    @Query(value = """
+            UPDATE inventory
+            SET quantity = quantity - :quantity,
+                reserved_quantity = reserved_quantity - :quantity
+            WHERE warehouse_id = :warehouseId
+              AND product_id = :productId
+              AND reserved_quantity >= :quantity
+            """, nativeQuery = true)
+    int commitPreparedStock(@Param("warehouseId") Integer warehouseId,
+                            @Param("productId") Integer productId,
+                            @Param("quantity") Integer quantity);
+
+    @Transactional
+    @Modifying(clearAutomatically = true, flushAutomatically = true)
+    @Query(value = """
+            UPDATE inventory
+            SET reserved_quantity = reserved_quantity - :quantity
+            WHERE warehouse_id = :warehouseId
+              AND product_id = :productId
+              AND reserved_quantity >= :quantity
+            """, nativeQuery = true)
+    int abortPreparedStock(@Param("warehouseId") Integer warehouseId,
+                           @Param("productId") Integer productId,
+                           @Param("quantity") Integer quantity);
+
+    @Query(value = """
+            SELECT COALESCE(quantity - reserved_quantity, 0)
+            FROM inventory
+            WHERE warehouse_id = :warehouseId AND product_id = :productId
+            """, nativeQuery = true)
+    Integer findAvailableQuantityNative(@Param("warehouseId") Integer warehouseId,
+                                        @Param("productId") Integer productId);
+
 }

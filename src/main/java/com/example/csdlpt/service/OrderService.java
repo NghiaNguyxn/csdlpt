@@ -71,6 +71,8 @@ public class OrderService {
     private final DanangCustomerIdentityRepository danangCustomerIdentityRepository;
     private final HcmCustomerIdentityRepository hcmCustomerIdentityRepository;
 
+    private final TwoPhaseCommitStockService twoPhaseCommitStockService;
+
     @Transactional("hanoiTransactionManager")
     public OrderResponse createLocalHanoiOrder(LocalOrderRequest request) {
         validateLocalOrder(request);
@@ -112,7 +114,6 @@ public class OrderService {
                 .id(orderId)
                 .customer(customer)
                 .status(OrderStatus.COMPLETED)
-                .warehouse(warehouse)
                 .site(warehouse.getSite())
                 .build();
         hanoiOrderRepository.save(order);
@@ -125,7 +126,6 @@ public class OrderService {
                     .id(new OrderDetailId(orderId, productId, warehouse.getId()))
                     .order(order)
                     .product(product)
-                    .warehouse(warehouse)
                     .quantity(quantity)
                     .price(product.getPrice())
                     .build();
@@ -144,32 +144,31 @@ public class OrderService {
         DistributedOrderRepository orderRepo = orderRepo(mainSite);
         DistributedOrderDetailRepository detailRepo = detailRepo(mainSite);
         DistributedTransactionLogRepository txRepo = txRepo(mainSite);
+        if (orderRepo.existsById(orderId)) {
+            throw new AppException(ErrorCode.INVALID_KEY, "Mã đơn hàng đã tồn tại tại site " + mainSite + ": " + orderId);
+        }
 
-        List<OrderAllocationRequest> preparedAllocations = new ArrayList<>();
+        List<PreparedParticipant> preparedParticipants = new ArrayList<>();
         List<String> participantLogs = new ArrayList<>();
         txRepo.save(TransactionLog.builder()
                 .transactionId(txId)
                 .status(TransactionStatus.PREPARED)
-                .participants("INIT")
+                .participants("2PC_GLOBAL_PREPARE_STARTED")
                 .build());
 
         try {
-
+            // Phase 1: PREPARE. Mỗi site giữ tạm tồn kho bằng reserved_quantity và ghi participant log.
             for (MultiOrderItemRequest item : request.getItems()) {
                 for (OrderAllocationRequest allocation : item.getAllocations()) {
                     SiteCode allocationSite = parseSite(allocation.getSiteCode());
                     siteRoutingService.findProductBySite(item.getProductId(), allocationSite);
                     siteRoutingService.findWarehouseBySite(allocation.getWarehouseId(), allocationSite);
-                    DistributedInventoryRepository inventoryRepo = siteRoutingService.getInventoryRepository(allocationSite);
-                    int updated = inventoryRepo.reduceStockIfEnough(
-                            allocation.getWarehouseId(), item.getProductId(), allocation.getQuantity());
-                    if (updated == 0) {
-                        throw new AppException(ErrorCode.INSUFFICIENT_STOCK,
-                                "PREPARE thất bại tại site " + allocationSite + ": không đủ tồn kho");
-                    }
-                    preparedAllocations.add(allocation);
-                    participantLogs.add(allocationSite + ":PREPARED_COMMITTED(product=" + item.getProductId()
-                            + ",warehouse=" + allocation.getWarehouseId() + ",qty=" + allocation.getQuantity() + ")");
+
+                    twoPhaseCommitStockService.prepare(allocationSite, txId, allocation, item.getProductId());
+                    preparedParticipants.add(new PreparedParticipant(allocationSite, item.getProductId(), allocation));
+                    participantLogs.add(allocationSite + ":PREPARED(product=" + item.getProductId()
+                            + ",warehouse=" + allocation.getWarehouseId()
+                            + ",qty=" + allocation.getQuantity() + ")");
                 }
             }
 
@@ -178,11 +177,19 @@ public class OrderService {
                             "Không tìm thấy customer tại site lưu đơn " + mainSite));
             Warehouse mainWarehouse = siteRoutingService.findWarehouseBySite(request.getMainWarehouseId(), mainSite);
 
+            // Phase 2: GLOBAL COMMIT. Tất cả participant đã PREPARED nên trừ kho chính thức.
+            for (PreparedParticipant participant : preparedParticipants) {
+                twoPhaseCommitStockService.commit(
+                        participant.site(), txId, participant.allocation(), participant.productId());
+                participantLogs.add(participant.site() + ":COMMITTED(product=" + participant.productId()
+                        + ",warehouse=" + participant.allocation().getWarehouseId()
+                        + ",qty=" + participant.allocation().getQuantity() + ")");
+            }
+
             Order order = Order.builder()
                     .id(orderId)
                     .customer(customer)
                     .status(OrderStatus.COMPLETED)
-                    .warehouse(mainWarehouse)
                     .site(mainWarehouse.getSite())
                     .build();
             orderRepo.save(order);
@@ -190,12 +197,10 @@ public class OrderService {
             for (MultiOrderItemRequest item : request.getItems()) {
                 ProductBasic productAtMainSite = siteRoutingService.findProductBySite(item.getProductId(), mainSite);
                 for (OrderAllocationRequest allocation : item.getAllocations()) {
-                    Warehouse allocationWarehouseInMainDb = siteRoutingService.findWarehouseBySite(allocation.getWarehouseId(), mainSite);
                     OrderDetail detail = OrderDetail.builder()
                             .id(new OrderDetailId(orderId, item.getProductId(), allocation.getWarehouseId()))
                             .order(order)
                             .product(productAtMainSite)
-                            .warehouse(allocationWarehouseInMainDb)
                             .quantity(allocation.getQuantity())
                             .price(productAtMainSite.getPrice())
                             .build();
@@ -206,7 +211,8 @@ public class OrderService {
             updateTransaction(txRepo, txId, TransactionStatus.COMMITTED, String.join(" | ", participantLogs));
             return toResponse(orderRepo.findById(orderId).orElse(order), mainSite, txId);
         } catch (Exception exception) {
-            rollbackPrepared(request, preparedAllocations, participantLogs);
+            // GLOBAL ABORT. Chỉ abort các participant đã PREPARED để giải phóng reserved_quantity.
+            abortPreparedParticipants(txId, preparedParticipants, participantLogs);
             updateTransaction(txRepo, txId, TransactionStatus.ABORTED,
                     String.join(" | ", participantLogs) + " | ABORTED: " + exception.getMessage());
             if (exception instanceof AppException appException) {
@@ -251,17 +257,15 @@ public class OrderService {
         throw new AppException(ErrorCode.ORDER_NOT_FOUND);
     }
 
-    private void rollbackPrepared(MultiOrderRequest request, List<OrderAllocationRequest> preparedAllocations, List<String> participantLogs) {
-        for (MultiOrderItemRequest item : request.getItems()) {
-            for (OrderAllocationRequest allocation : item.getAllocations()) {
-                if (preparedAllocations.contains(allocation)) {
-                    SiteCode site = parseSite(allocation.getSiteCode());
-                    siteRoutingService.getInventoryRepository(site)
-                            .addStockBack(allocation.getWarehouseId(), item.getProductId(), allocation.getQuantity());
-                    participantLogs.add(site + ":ROLLBACK(product=" + item.getProductId()
-                            + ",warehouse=" + allocation.getWarehouseId() + ",qty=" + allocation.getQuantity() + ")");
-                }
-            }
+    private void abortPreparedParticipants(String txId,
+                                           List<PreparedParticipant> preparedParticipants,
+                                           List<String> participantLogs) {
+        for (PreparedParticipant participant : preparedParticipants) {
+            twoPhaseCommitStockService.abort(
+                    participant.site(), txId, participant.allocation(), participant.productId());
+            participantLogs.add(participant.site() + ":ABORTED(product=" + participant.productId()
+                    + ",warehouse=" + participant.allocation().getWarehouseId()
+                    + ",qty=" + participant.allocation().getQuantity() + ")");
         }
     }
 
@@ -282,12 +286,13 @@ public class OrderService {
         BigDecimal total = details.stream()
                 .map(OrderDetailResponse::getLineTotal)
                 .reduce(BigDecimal.ZERO, BigDecimal::add);
+        Integer mainWarehouseId = details.isEmpty() ? null : details.get(0).getWarehouseId();
         return OrderResponse.builder()
                 .id(order.getId())
                 .customerId(order.getCustomer() != null ? order.getCustomer().getId() : null)
                 .orderDate(order.getOrderDate())
                 .status(order.getStatus())
-                .warehouseId(order.getWarehouse() != null ? order.getWarehouse().getId() : null)
+                .warehouseId(mainWarehouseId)
                 .siteId(order.getSite() != null ? order.getSite().getId() : null)
                 .sourceSite(sourceSite.name())
                 .totalAmount(total)
@@ -300,7 +305,7 @@ public class OrderService {
         Integer productId = detail.getId().getProductId();
         Integer warehouseId = detail.getId().getWarehouseId();
         ProductBasic product = siteRoutingService.findProductBySite(productId, sourceSite);
-        Warehouse warehouse = siteRoutingService.findWarehouseBySite(warehouseId, sourceSite);
+        Warehouse warehouse = findWarehouseFromAnySite(warehouseId);
         BigDecimal lineTotal = detail.getPrice().multiply(BigDecimal.valueOf(detail.getQuantity()));
         return OrderDetailResponse.builder()
                 .orderId(detail.getId().getOrderId())
@@ -312,6 +317,17 @@ public class OrderService {
                 .price(detail.getPrice())
                 .lineTotal(lineTotal)
                 .build();
+    }
+
+    private Warehouse findWarehouseFromAnySite(Integer warehouseId) {
+        for (SiteCode site : SiteCode.values()) {
+            try {
+                return siteRoutingService.findWarehouseBySite(warehouseId, site);
+            } catch (RuntimeException ignored) {
+                // Thử site tiếp theo vì theo schema main mỗi site chỉ giữ warehouse cục bộ.
+            }
+        }
+        throw new AppException(ErrorCode.WAREHOUSE_NOT_FOUND, "Không tìm thấy kho id=" + warehouseId);
     }
 
     private void validateLocalOrder(LocalOrderRequest request) {
@@ -421,4 +437,8 @@ public class OrderService {
             default -> hanoiCustomerIdentityRepository;
         };
     }
+
+    private record PreparedParticipant(SiteCode site, Integer productId, OrderAllocationRequest allocation) {
+    }
+
 }

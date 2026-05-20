@@ -36,7 +36,7 @@ public class ReportService {
 
         for (SiteCode site : SiteCode.values()) {
             for (MonthlyRevenueProjection row : orderRepo(site).getMonthlyRevenue(year)) {
-                Warehouse warehouse = siteRoutingService.findWarehouseBySite(row.getWarehouseId(), site);
+                Warehouse warehouse = findWarehouseFromAnySite(row.getWarehouseId());
                 BigDecimal revenue = row.getRevenue() == null ? BigDecimal.ZERO : row.getRevenue();
                 details.add(MonthlyRevenueResponse.builder()
                         .year(year)
@@ -81,6 +81,19 @@ public class ReportService {
                             .build();
                 })
                 .toList();
+    }
+
+    private Warehouse findWarehouseFromAnySite(Integer warehouseId) {
+        for (SiteCode site : SiteCode.values()) {
+            try {
+                return siteRoutingService.findWarehouseBySite(warehouseId, site);
+            } catch (RuntimeException ignored) {
+                // Theo schema main, warehouse có thể chỉ nằm ở site cục bộ của nó.
+            }
+        }
+        throw new com.example.csdlpt.exception.AppException(
+                com.example.csdlpt.exception.ErrorCode.WAREHOUSE_NOT_FOUND,
+                "Không tìm thấy kho id=" + warehouseId);
     }
 
     private DistributedOrderRepository orderRepo(SiteCode siteCode) {

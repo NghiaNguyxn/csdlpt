@@ -26,4 +26,8 @@ public class Inventory {
 
     @Column(nullable = false)
     private Integer quantity;
+
+    @Builder.Default
+    @Column(name = "reserved_quantity", nullable = false)
+    private Integer reservedQuantity = 0;
 }
