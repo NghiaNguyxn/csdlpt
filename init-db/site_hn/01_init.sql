@@ -45,14 +45,17 @@ CREATE TABLE customer_identity (
     id BIGINT PRIMARY KEY,
     email VARCHAR(100) UNIQUE NOT NULL,
     password VARCHAR(100) NOT NULL,
-    main_site_id INT REFERENCES site(id) NOT NULL
+    main_site_id INT REFERENCES site(id) NOT NULL,
+    UNIQUE (id, main_site_id)
 );
 
 CREATE TABLE customer_profile (
     id BIGINT PRIMARY KEY REFERENCES customer_identity(id),
+    main_site_id INT REFERENCES site(id) NOT NULL,
     name VARCHAR(100) NOT NULL,
     phone VARCHAR(20),
-    address TEXT
+    address TEXT,
+    FOREIGN KEY (id, main_site_id) REFERENCES customer_identity(id, main_site_id)
 );
 
 CREATE TABLE orders (
@@ -93,6 +96,20 @@ CREATE TABLE transaction_log (
     participants TEXT,                       -- Danh sách các site tham gia
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
     updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+);
+
+CREATE TABLE transaction_event_log (
+    id BIGSERIAL PRIMARY KEY,
+    transaction_id VARCHAR(100) NOT NULL,
+    event_type VARCHAR(50) NOT NULL,          -- TX_BEGIN, LOCK_REQUEST, LOCK_GRANTED, LOCK_TIMEOUT, TX_STATUS
+    actor_role VARCHAR(30) NOT NULL,          -- COORDINATOR, PARTICIPANT, LOCK_MANAGER
+    site_code VARCHAR(20),
+    resource_key VARCHAR(120),                -- Ví dụ: inventory[warehouseId=1,productId=2]
+    lock_mode VARCHAR(20),                    -- RL/WL theo giáo trình locking-based algorithms
+    status VARCHAR(30),                       -- INITIAL, WAIT, GRANTED, TIMEOUT, PREPARED, COMMITTED, ABORTED
+    wait_millis BIGINT,
+    message TEXT,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 );
 
 CREATE TABLE transaction_participant_log (
@@ -136,12 +153,27 @@ INSERT INTO inventory (warehouse_id, product_id, quantity) VALUES
     (1, 1, 50),
     (1, 2, 100);
 
--- Dữ liệu khách hàng cục bộ tại HN
+-- CUSTOMER IDENTITY REPLICATION: nhân bản định danh khách hàng ở tất cả các site.
+-- Lý do: customer_identity nhỏ, đọc nhiều để xác định main_site, nên nhân bản giúp giảm
+-- chi phí truy vấn định tuyến và tăng khả năng sẵn sàng theo mô hình phân bổ dữ liệu.
 INSERT INTO customer_identity (id, email, password, main_site_id) VALUES
-     (1, 'ana@gmail.com', '123456', 1);
+     (1, 'ana@gmail.com', '123456', 1),
+     (2, 'bt@gmail.com', '123456', 2),
+     (3, 'cle@gmail.com', '123456', 3);
 
-INSERT INTO customer_profile (id, name, phone, address) VALUES
-     (1, 'Nguyen Van A', '0912345678', '123 Pho Hue, Hai Ba Trung, Ha Noi');
+-- CUSTOMER PROFILE FRAGMENTATION: HN chỉ lưu hồ sơ chi tiết của khách có main_site = HN.
+-- Fragment: CustomerProfile_HN = customer_profile ⋈ customer_identity WHERE main_site_id = 1.
+INSERT INTO customer_profile (id, main_site_id, name, phone, address) VALUES
+     (1, 1, 'Nguyen Van A', '0912345678', '123 Pho Hue, Hai Ba Trung, Ha Noi');
+
+-- Q5 DEMO: đơn 1001 được xuất từ nhiều kho ở nhiều site.
+-- Tại HN giữ phần xuất từ WH-HN-01; DN giữ phần còn lại từ WH-DN-01.
+INSERT INTO orders (id, customer_id, status, warehouse_id, site_id) VALUES
+     (1001, 1, 'PENDING', 1, 1);
+
+INSERT INTO order_detail (order_id, product_id, warehouse_id, quantity, price) VALUES
+     (1001, 1, 1, 1, 3000.00),
+     (1001, 2, 1, 1, 1200.00);
 
 -- CẬP NHẬT LẠI SEQUENCE CHO CÁC BẢNG CÓ KHÓA CHÍNH TỰ TĂNG (SERIAL)
 SELECT setval('category_id_seq', (SELECT MAX(id) FROM category));
@@ -150,6 +182,8 @@ SELECT setval('site_id_seq', (SELECT MAX(id) FROM site));
 SELECT setval('warehouse_id_seq', (SELECT MAX(id) FROM warehouse));
 -- Không cần setval cho customer_identity vì dùng BIGINT (Snowflake/Manual ID)
 SELECT setval('replication_log_id_seq', COALESCE((SELECT MAX(id) FROM replication_log), 1));
+SELECT setval('transaction_event_log_id_seq', COALESCE((SELECT MAX(id) FROM transaction_event_log), 1));
+SELECT setval('transaction_participant_log_id_seq', COALESCE((SELECT MAX(id) FROM transaction_participant_log), 1));
 
 -- INDICES
 CREATE INDEX idx_inventory_product ON inventory(product_id);
@@ -158,3 +192,8 @@ CREATE INDEX idx_order_detail_product ON order_detail(product_id);
 CREATE INDEX idx_order_detail_warehouse ON order_detail(warehouse_id);
 CREATE INDEX idx_orders_date ON orders(order_date);
 CREATE INDEX idx_orders_site ON orders(site_id);
+CREATE INDEX idx_customer_identity_main_site ON customer_identity(main_site_id);
+CREATE INDEX idx_customer_profile_main_site ON customer_profile(main_site_id);
+CREATE INDEX idx_transaction_event_log_tx ON transaction_event_log(transaction_id);
+CREATE INDEX idx_transaction_event_log_created_at ON transaction_event_log(created_at);
+CREATE INDEX idx_transaction_participant_log_tx ON transaction_participant_log(transaction_id);

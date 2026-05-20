@@ -11,6 +11,7 @@ import com.example.csdlpt.entity.ReplicationLog;
 import com.example.csdlpt.enums.ReplicationStatus;
 import com.example.csdlpt.exception.AppException;
 import com.example.csdlpt.exception.ErrorCode;
+import com.example.csdlpt.repository.site_hn.HanoiCustomerIdentityRepository;
 import com.example.csdlpt.repository.site_hn.HanoiProductRepository;
 import com.example.csdlpt.repository.site_hn.HanoiReplicationLogRepository;
 import com.example.csdlpt.service.ReplicationService;
@@ -29,6 +30,7 @@ public class ReplicationJob {
 
     HanoiReplicationLogRepository logRepository;
     HanoiProductRepository hanoiProductRepository;
+    HanoiCustomerIdentityRepository hanoiCustomerIdentityRepository;
     ReplicationService replicationService;
 
     @Scheduled(fixedDelay = 10000)

@@ -19,6 +19,10 @@ public class CustomerProfile {
     @JoinColumn(name = "id")
     private CustomerIdentity identity;
 
+    @ManyToOne(fetch = FetchType.EAGER)
+    @JoinColumn(name = "main_site_id", nullable = false)
+    private Site mainSite;
+
     @Column(nullable = false, length = 100)
     private String name;
 

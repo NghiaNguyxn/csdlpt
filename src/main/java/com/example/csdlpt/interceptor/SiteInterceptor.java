@@ -38,9 +38,11 @@ public class SiteInterceptor implements HandlerInterceptor {
             throw new AppException(ErrorCode.INVALID_KEY, "Thiếu header User-Email để xác định chi nhánh");
         }
 
-        log.info("Bắt đầu truy vấn phân tán để tìm khách hàng có email: {}", email);
+        log.info("Bắt đầu tra cứu bản sao customer_identity theo email: {}", email);
 
-        // Distributed Search Mechanism (Fragmentation Transparency)
+        // Replicated identity lookup: customer_identity is copied at every site so any
+        // replica can determine the customer's main site. Keep replica fallback for the
+        // demo to tolerate stale/unavailable seed data during local experiments.
         CustomerIdentity customer = hanoiCustomerRepository.findByEmail(email)
                 .orElseGet(() -> danangCustomerRepository.findByEmail(email)
                         .orElseGet(() -> hcmCustomerRepository.findByEmail(email)
