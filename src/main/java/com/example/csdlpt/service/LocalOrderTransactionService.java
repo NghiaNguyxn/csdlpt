@@ -1,7 +1,9 @@
 package com.example.csdlpt.service;
 
 import java.util.ArrayList;
+import java.util.Comparator;
 import java.util.LinkedHashMap;
+import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.UUID;
@@ -112,8 +114,8 @@ public class LocalOrderTransactionService {
             I extends InventoryLockingRepository>
     Order createLocalOrder(LocalOrderRequest request, C customerRepo, P productRepo, W warehouseRepo,
                            I inventoryRepo, Integer siteId, String siteCode, SiteCode siteCodeEnum) {
-        List<LocalOrderLine> items = normalizeItems(request);
-        verifyGlobalStockForLocalOrder(items);
+        List<LocalProductDemand> demands = normalizeItems(request);
+        verifyGlobalStockForLocalOrder(demands);
 
         CustomerIdentity customer = customerRepo.findById(request.getCustomerId())
                 .orElseThrow(() -> new AppException(ErrorCode.CUSTOMER_NOT_FOUND));
@@ -127,39 +129,26 @@ public class LocalOrderTransactionService {
                 .build();
 
         List<OrderDetail> details = new ArrayList<>();
-        for (LocalOrderLine item : items) {
-            ProductBasic product = productRepo.findById(item.productId())
+        for (LocalProductDemand demand : demands) {
+            ProductBasic product = productRepo.findById(demand.productId())
                     .orElseThrow(() -> new AppException(ErrorCode.PRODUCT_NOT_FOUND));
-            Warehouse warehouse = warehouseRepo.findById(item.warehouseId())
-                    .orElseThrow(() -> new AppException(ErrorCode.WAREHOUSE_NOT_FOUND));
-            validateWarehouseBelongsToSite(warehouse, siteId, siteCode);
 
-            InventoryId inventoryId = InventoryId.builder()
-                    .warehouseId(item.warehouseId())
-                    .productId(item.productId())
-                    .build();
-            Inventory inventory = inventoryRepo.findByIdForUpdate(inventoryId)
-                    .orElseThrow(() -> new AppException(ErrorCode.INSUFFICIENT_STOCK,
-                            "Khong co ton kho cho productId=" + item.productId()
-                                    + " tai warehouseId=" + item.warehouseId()));
-            if (inventory.getQuantity() == null || inventory.getQuantity() < item.quantity()) {
-                throw new AppException(ErrorCode.INSUFFICIENT_STOCK,
-                        "Kho local " + siteCode + " khong du hang cho productId=" + item.productId());
+            List<LocalInventoryAllocation> allocations = allocateFromLocalWarehouses(
+                    demand, warehouseRepo, inventoryRepo, siteId, siteCode);
+
+            for (LocalInventoryAllocation allocation : allocations) {
+                details.add(OrderDetail.builder()
+                        .id(OrderDetailId.builder()
+                                .orderId(orderId)
+                                .productId(demand.productId())
+                                .warehouseId(allocation.warehouseId())
+                                .build())
+                        .order(order)
+                        .product(product)
+                        .quantity(allocation.quantity())
+                        .price(product.getPrice())
+                        .build());
             }
-            inventory.setQuantity(inventory.getQuantity() - item.quantity());
-            inventoryRepo.save(inventory);
-
-            details.add(OrderDetail.builder()
-                    .id(OrderDetailId.builder()
-                            .orderId(orderId)
-                            .productId(item.productId())
-                            .warehouseId(item.warehouseId())
-                            .build())
-                    .order(order)
-                    .product(product)
-                    .quantity(item.quantity())
-                    .price(product.getPrice())
-                    .build());
         }
 
         return switch (siteCodeEnum) {
@@ -169,69 +158,158 @@ public class LocalOrderTransactionService {
         };
     }
 
-    private List<LocalOrderLine> normalizeItems(LocalOrderRequest request) {
+    private List<LocalProductDemand> normalizeItems(LocalOrderRequest request) {
         validateRequest(request);
-        Integer orderWarehouseId = request.getItems().get(0).getWarehouseId();
-        Map<LocalOrderLineKey, Integer> quantityByLine = new LinkedHashMap<>();
+        Map<Integer, Integer> quantityByProduct = new LinkedHashMap<>();
+        Map<Integer, LinkedHashSet<Integer>> preferredWarehousesByProduct = new LinkedHashMap<>();
 
         for (LocalOrderItemRequest item : request.getItems()) {
-            if (!orderWarehouseId.equals(item.getWarehouseId())) {
-                throw new AppException(ErrorCode.INVALID_KEY,
-                        "Don hang local chi duoc lay hang tu mot kho");
-            }
-            LocalOrderLineKey key = new LocalOrderLineKey(item.getProductId(), item.getWarehouseId());
-            quantityByLine.merge(key, item.getQuantity(), Integer::sum);
+            quantityByProduct.merge(item.getProductId(), item.getQuantity(), Integer::sum);
+            preferredWarehousesByProduct
+                    .computeIfAbsent(item.getProductId(), ignored -> new LinkedHashSet<>())
+                    .add(item.getWarehouseId());
         }
 
-        List<LocalOrderLine> normalizedItems = new ArrayList<>();
-        for (Map.Entry<LocalOrderLineKey, Integer> entry : quantityByLine.entrySet()) {
-            LocalOrderLineKey key = entry.getKey();
-            normalizedItems.add(new LocalOrderLine(key.productId(), key.warehouseId(), entry.getValue()));
+        List<LocalProductDemand> normalizedItems = new ArrayList<>();
+        for (Map.Entry<Integer, Integer> entry : quantityByProduct.entrySet()) {
+            normalizedItems.add(new LocalProductDemand(
+                    entry.getKey(),
+                    entry.getValue(),
+                    new ArrayList<>(preferredWarehousesByProduct.get(entry.getKey()))));
         }
+        normalizedItems.sort(Comparator.comparing(LocalProductDemand::productId));
         return normalizedItems;
     }
 
-    private void verifyGlobalStockForLocalOrder(List<LocalOrderLine> items) {
-        Map<Integer, Integer> requiredQuantityByProduct = new LinkedHashMap<>();
-        for (LocalOrderLine item : items) {
-            requiredQuantityByProduct.merge(item.productId(), item.quantity(), Integer::sum);
+    private void verifyGlobalStockForLocalOrder(List<LocalProductDemand> demands) {
+        for (LocalProductDemand demand : demands) {
+            StockResponse globalStock = inventoryService.getGlobalStock(demand.productId());
+            int availableQuantity = globalStock.getQuantity() == null ? 0 : globalStock.getQuantity();
+            if (availableQuantity < demand.quantity()) {
+                throw new AppException(ErrorCode.INSUFFICIENT_STOCK,
+                        "Ton kho toan he thong khong du cho productId=" + demand.productId()
+                                + ", so luong can=" + demand.quantity()
+                                + ", so luong kha dung=" + availableQuantity);
+            }
+        }
+    }
+
+    private <W extends org.springframework.data.jpa.repository.JpaRepository<Warehouse, Integer>,
+            I extends InventoryLockingRepository>
+    List<LocalInventoryAllocation> allocateFromLocalWarehouses(
+            LocalProductDemand demand,
+            W warehouseRepo,
+            I inventoryRepo,
+            Integer siteId,
+            String siteCode) {
+        List<Warehouse> localWarehouses = warehouseRepo.findAll().stream()
+                .filter(warehouse -> belongsToSite(warehouse, siteId))
+                .sorted(Comparator.comparing(Warehouse::getId))
+                .toList();
+
+        if (localWarehouses.isEmpty()) {
+            throw new AppException(ErrorCode.WAREHOUSE_NOT_FOUND,
+                    "Khong tim thay kho nao thuoc site local " + siteCode);
         }
 
-        for (Map.Entry<Integer, Integer> entry : requiredQuantityByProduct.entrySet()) {
-            Integer productId = entry.getKey();
-            Integer requiredQuantity = entry.getValue();
-            StockResponse globalStock = inventoryService.getGlobalStock(productId);
-            int availableQuantity = globalStock.getQuantity() == null ? 0 : globalStock.getQuantity();
-            if (availableQuantity < requiredQuantity) {
-                throw new AppException(ErrorCode.INSUFFICIENT_STOCK,
-                        "Ton kho toan he thong khong du cho productId=" + productId
-                                + ", so luong can=" + requiredQuantity
-                                + ", so luong kha dung=" + availableQuantity);
+        Map<Integer, Warehouse> localWarehouseById = new LinkedHashMap<>();
+        for (Warehouse warehouse : localWarehouses) {
+            localWarehouseById.put(warehouse.getId(), warehouse);
+        }
+        validatePreferredWarehouses(demand.preferredWarehouseIds(), localWarehouseById, warehouseRepo, siteId, siteCode);
+
+        Map<Integer, Inventory> lockedInventories = new LinkedHashMap<>();
+        int availableLocalQuantity = 0;
+        for (Warehouse warehouse : localWarehouseById.values()) {
+            InventoryId inventoryId = InventoryId.builder()
+                    .warehouseId(warehouse.getId())
+                    .productId(demand.productId())
+                    .build();
+            Inventory inventory = inventoryRepo.findByIdForUpdate(inventoryId).orElse(null);
+            if (inventory == null || inventory.getQuantity() == null || inventory.getQuantity() <= 0) {
+                continue;
+            }
+
+            lockedInventories.put(warehouse.getId(), inventory);
+            availableLocalQuantity += inventory.getQuantity();
+        }
+
+        if (availableLocalQuantity < demand.quantity()) {
+            throw new AppException(ErrorCode.INSUFFICIENT_STOCK,
+                    "Kho local " + siteCode + " khong du hang cho productId=" + demand.productId()
+                            + ", so luong can=" + demand.quantity()
+                            + ", so luong kha dung tai site=" + availableLocalQuantity);
+        }
+
+        LinkedHashSet<Integer> allocationOrder = new LinkedHashSet<>(demand.preferredWarehouseIds());
+        allocationOrder.addAll(lockedInventories.keySet());
+        int remaining = demand.quantity();
+        List<LocalInventoryAllocation> allocations = new ArrayList<>();
+
+        for (Integer warehouseId : allocationOrder) {
+            if (remaining == 0) {
+                break;
+            }
+
+            Inventory inventory = lockedInventories.get(warehouseId);
+            if (inventory == null || inventory.getQuantity() == null || inventory.getQuantity() <= 0) {
+                continue;
+            }
+
+            int allocatedQuantity = Math.min(remaining, inventory.getQuantity());
+            inventory.setQuantity(inventory.getQuantity() - allocatedQuantity);
+            inventoryRepo.save(inventory);
+
+            allocations.add(new LocalInventoryAllocation(warehouseId, allocatedQuantity));
+            remaining -= allocatedQuantity;
+        }
+
+        if (remaining > 0) {
+            throw new AppException(ErrorCode.INSUFFICIENT_STOCK,
+                    "Kho local " + siteCode + " khong du hang cho productId=" + demand.productId());
+        }
+        return allocations;
+    }
+
+    private <W extends org.springframework.data.jpa.repository.JpaRepository<Warehouse, Integer>> void validatePreferredWarehouses(
+            List<Integer> preferredWarehouseIds,
+            Map<Integer, Warehouse> localWarehouseById,
+            W warehouseRepo,
+            Integer siteId,
+            String siteCode) {
+        for (Integer preferredWarehouseId : preferredWarehouseIds) {
+            Warehouse localWarehouse = localWarehouseById.get(preferredWarehouseId);
+            if (localWarehouse != null) {
+                continue;
+            }
+            Warehouse warehouse = warehouseRepo.findById(preferredWarehouseId)
+                    .orElseThrow(() -> new AppException(ErrorCode.WAREHOUSE_NOT_FOUND));
+            if (!belongsToSite(warehouse, siteId)) {
+                throw new AppException(ErrorCode.INVALID_KEY, "Warehouse khong thuoc site local " + siteCode);
             }
         }
     }
 
     private void validateRequest(LocalOrderRequest request) {
         if (request == null || request.getCustomerId() == null) {
-            throw new AppException(ErrorCode.INVALID_KEY, "Thiếu customerId");
+            throw new AppException(ErrorCode.INVALID_KEY, "Thieu customerId");
         }
         if (request.getItems() == null || request.getItems().isEmpty()) {
-            throw new AppException(ErrorCode.INVALID_KEY, "Đơn hàng phải có ít nhất một sản phẩm");
+            throw new AppException(ErrorCode.INVALID_KEY, "Don hang phai co it nhat mot san pham");
         }
         for (LocalOrderItemRequest item : request.getItems()) {
             if (item.getProductId() == null || item.getWarehouseId() == null
                     || item.getQuantity() == null || item.getQuantity() <= 0) {
-                throw new AppException(ErrorCode.INVALID_KEY, "Thông tin item không hợp lệ");
+                throw new AppException(ErrorCode.INVALID_KEY, "Thong tin item khong hop le");
             }
         }
     }
 
-    private void validateWarehouseBelongsToSite(Warehouse warehouse, Integer siteId, String siteCode) {
-        if (warehouse.getSite() == null || warehouse.getSite().getId() == null
-                || !warehouse.getSite().getId().equals(siteId)) {
-            throw new AppException(ErrorCode.INVALID_KEY,
-                    "Warehouse không thuộc site local " + siteCode);
-        }
+    private boolean belongsToSite(Warehouse warehouse, Integer siteId) {
+        return warehouse != null
+                && warehouse.getSite() != null
+                && warehouse.getSite().getId() != null
+                && warehouse.getSite().getId().equals(siteId);
     }
 
     private Site siteRef(Integer siteId, String siteCode) {
@@ -242,9 +320,9 @@ public class LocalOrderTransactionService {
         return UUID.randomUUID().getMostSignificantBits() & Long.MAX_VALUE;
     }
 
-    private record LocalOrderLineKey(Integer productId, Integer warehouseId) {
+    private record LocalProductDemand(Integer productId, Integer quantity, List<Integer> preferredWarehouseIds) {
     }
 
-    private record LocalOrderLine(Integer productId, Integer warehouseId, Integer quantity) {
+    private record LocalInventoryAllocation(Integer warehouseId, Integer quantity) {
     }
 }
