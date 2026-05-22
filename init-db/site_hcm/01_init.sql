@@ -123,8 +123,7 @@ INSERT INTO product_basic (id, name, price, category_id) VALUES
     (1, 'Macbook M3', 3000, 1),
     (2, 'iPhone 15 Pro', 1200, 2);
 
--- REPLICATED REFERENCE DATA: warehouse metadata is available at every site.
--- Inventory remains horizontally fragmented; only local warehouse inventory is stored below.
+-- WAREHOUSE METADATA REPLICATION: danh muc kho duoc nhan ban o tat ca site
 INSERT INTO warehouse (id, code, name, location, region, site_id) VALUES
     (1, 'WH-HN-01', 'Kho Hoàn Kiếm', 'Hà Nội', 'North', 1),
     (2, 'WH-DN-01', 'Kho Hải Châu', 'Đà Nẵng', 'Central', 2),

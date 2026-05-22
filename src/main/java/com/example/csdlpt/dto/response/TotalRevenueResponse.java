@@ -1,0 +1,18 @@
+package com.example.csdlpt.dto.response;
+
+import java.math.BigDecimal;
+import java.util.List;
+import lombok.*;
+import lombok.experimental.FieldDefaults;
+
+@Getter
+@Setter
+@NoArgsConstructor
+@AllArgsConstructor
+@Builder
+@FieldDefaults(level = AccessLevel.PRIVATE)
+public class TotalRevenueResponse {
+    Integer year;
+    BigDecimal totalRevenue;
+    List<SiteRevenueResponse> siteBreakdown;
+}

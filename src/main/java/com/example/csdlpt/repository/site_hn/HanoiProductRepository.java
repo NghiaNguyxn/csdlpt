@@ -11,4 +11,5 @@ import java.util.Optional;
 public interface HanoiProductRepository extends JpaRepository<ProductBasic, Integer> {
     List<ProductBasic> findByIsActiveTrue();
     Optional<ProductBasic> findByIdAndIsActiveTrue(Integer id);
+    boolean existsByCategory_Id(Integer categoryId);
 }

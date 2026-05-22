@@ -9,10 +9,12 @@ import org.springframework.transaction.annotation.Transactional;
 import com.example.csdlpt.entity.ReplicationLog;
 import com.example.csdlpt.enums.ReplicationAction;
 import com.example.csdlpt.enums.ReplicationStatus;
-import com.example.csdlpt.repository.site_dn.DanangCustomerIdentityRepository;
+import com.example.csdlpt.repository.site_dn.DanangCategoryRepository;
 import com.example.csdlpt.repository.site_dn.DanangProductRepository;
-import com.example.csdlpt.repository.site_hcm.HcmCustomerIdentityRepository;
+import com.example.csdlpt.repository.site_dn.DanangWarehouseRepository;
+import com.example.csdlpt.repository.site_hcm.HcmCategoryRepository;
 import com.example.csdlpt.repository.site_hcm.HcmProductRepository;
+import com.example.csdlpt.repository.site_hcm.HcmWarehouseRepository;
 import com.example.csdlpt.repository.site_hn.HanoiReplicationLogRepository;
 
 import lombok.AccessLevel;
@@ -26,8 +28,10 @@ public class ReplicationService {
 
     DanangProductRepository danangProductRepository;
     HcmProductRepository hcmProductRepository;
-    DanangCustomerIdentityRepository danangCustomerIdentityRepository;
-    HcmCustomerIdentityRepository hcmCustomerIdentityRepository;
+    DanangWarehouseRepository danangWarehouseRepository;
+    HcmWarehouseRepository hcmWarehouseRepository;
+    DanangCategoryRepository danangCategoryRepository;
+    HcmCategoryRepository hcmCategoryRepository;
     HanoiReplicationLogRepository logRepository;
 
     @Transactional(value = "hanoiTransactionManager")
@@ -63,13 +67,54 @@ public class ReplicationService {
     }
 
     @Transactional(value = "danangTransactionManager")
-    public void replicateCustomerIdentityToDanang(Long id, String email, String password, Integer mainSiteId) {
-        danangCustomerIdentityRepository.replicateCustomerIdentity(id, email, password, mainSiteId);
+    public void replicateWarehouseToDanang(Long id, String code, String name, String location, String region, Integer siteId) {
+        danangWarehouseRepository.upsertWarehouse(id.intValue(), code, name, location, region, siteId);
+        danangWarehouseRepository.syncWarehouseSequence();
     }
 
     @Transactional(value = "hcmTransactionManager")
-    public void replicateCustomerIdentityToHcm(Long id, String email, String password, Integer mainSiteId) {
-        hcmCustomerIdentityRepository.replicateCustomerIdentity(id, email, password, mainSiteId);
+    public void replicateWarehouseToHcm(Long id, String code, String name, String location, String region, Integer siteId) {
+        hcmWarehouseRepository.upsertWarehouse(id.intValue(), code, name, location, region, siteId);
+        hcmWarehouseRepository.syncWarehouseSequence();
+    }
+
+    @Transactional(value = "danangTransactionManager")
+    public void deleteWarehouseFromDanang(Long id) {
+        if (danangWarehouseRepository.existsById(id.intValue())) {
+            danangWarehouseRepository.deleteById(id.intValue());
+        }
+    }
+
+    @Transactional(value = "hcmTransactionManager")
+    public void deleteWarehouseFromHcm(Long id) {
+        if (hcmWarehouseRepository.existsById(id.intValue())) {
+            hcmWarehouseRepository.deleteById(id.intValue());
+        }
+    }
+
+
+    @Transactional(value = "danangTransactionManager")
+    public void replicateCategoryToDanang(Long id, String name) {
+        danangCategoryRepository.upsertCategory(id.intValue(), name);
+    }
+
+    @Transactional(value = "hcmTransactionManager")
+    public void replicateCategoryToHcm(Long id, String name) {
+        hcmCategoryRepository.upsertCategory(id.intValue(), name);
+    }
+
+    @Transactional(value = "danangTransactionManager")
+    public void deleteCategoryFromDanang(Long id) {
+        if (danangCategoryRepository.existsById(id.intValue())) {
+            danangCategoryRepository.deleteById(id.intValue());
+        }
+    }
+
+    @Transactional(value = "hcmTransactionManager")
+    public void deleteCategoryFromHcm(Long id) {
+        if (hcmCategoryRepository.existsById(id.intValue())) {
+            hcmCategoryRepository.deleteById(id.intValue());
+        }
     }
 
     @Transactional(value = "hanoiTransactionManager")

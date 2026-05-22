@@ -1,6 +1,7 @@
 package com.example.csdlpt.service;
 
 import java.util.List;
+import java.util.Optional;
 
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -101,4 +102,68 @@ public class OrderPersistenceService {
         order.setStatus(status);
         hcmOrderRepository.save(order);
     }
+
+    public Optional<Order> findOrderAtHanoi(Long orderId) {
+        return hanoiOrderRepository.findById(orderId);
+    }
+
+    public Optional<Order> findOrderAtDanang(Long orderId) {
+        return danangOrderRepository.findById(orderId);
+    }
+
+    public Optional<Order> findOrderAtHcm(Long orderId) {
+        return hcmOrderRepository.findById(orderId);
+    }
+
+    public List<Order> findAllOrdersAtHanoi() {
+        return hanoiOrderRepository.findAll();
+    }
+
+    public List<Order> findAllOrdersAtDanang() {
+        return danangOrderRepository.findAll();
+    }
+
+    public List<Order> findAllOrdersAtHcm() {
+        return hcmOrderRepository.findAll();
+    }
+
+    public List<OrderDetail> findOrderDetailsAtHanoi(Long orderId) {
+        return hanoiOrderDetailRepository.findAll().stream()
+                .filter(detail -> detail.getId() != null && orderId.equals(detail.getId().getOrderId()))
+                .toList();
+    }
+
+    public List<OrderDetail> findOrderDetailsAtDanang(Long orderId) {
+        return danangOrderDetailRepository.findAll().stream()
+                .filter(detail -> detail.getId() != null && orderId.equals(detail.getId().getOrderId()))
+                .toList();
+    }
+
+    public List<OrderDetail> findOrderDetailsAtHcm(Long orderId) {
+        return hcmOrderDetailRepository.findAll().stream()
+                .filter(detail -> detail.getId() != null && orderId.equals(detail.getId().getOrderId()))
+                .toList();
+    }
+
+    @Transactional("hanoiTransactionManager")
+    public Order updateOrderStatusAndReturnAtHanoi(Long orderId, OrderStatus status) {
+        updateOrderStatusAtHanoi(orderId, status);
+        return hanoiOrderRepository.findById(orderId)
+                .orElseThrow(() -> new AppException(ErrorCode.ORDER_NOT_FOUND, "Không tìm thấy đơn hàng tại HN"));
+    }
+
+    @Transactional("danangTransactionManager")
+    public Order updateOrderStatusAndReturnAtDanang(Long orderId, OrderStatus status) {
+        updateOrderStatusAtDanang(orderId, status);
+        return danangOrderRepository.findById(orderId)
+                .orElseThrow(() -> new AppException(ErrorCode.ORDER_NOT_FOUND, "Không tìm thấy đơn hàng tại DN"));
+    }
+
+    @Transactional("hcmTransactionManager")
+    public Order updateOrderStatusAndReturnAtHcm(Long orderId, OrderStatus status) {
+        updateOrderStatusAtHcm(orderId, status);
+        return hcmOrderRepository.findById(orderId)
+                .orElseThrow(() -> new AppException(ErrorCode.ORDER_NOT_FOUND, "Không tìm thấy đơn hàng tại HCM"));
+    }
+
 }

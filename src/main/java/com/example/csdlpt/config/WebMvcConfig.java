@@ -14,9 +14,10 @@ public class WebMvcConfig implements WebMvcConfigurer {
 
     @Override
     public void addInterceptors(InterceptorRegistry registry) {
-        // Apply the interceptor to all API endpoints, but you can exclude some if
-        // needed (e.g., public endpoints).
         registry.addInterceptor(siteInterceptor)
-                .addPathPatterns("/api/**");
+                .addPathPatterns(
+                        "/api/orders/local",
+                        "/api/orders/distributed",
+                        "/api/inventories/**");
     }
 }

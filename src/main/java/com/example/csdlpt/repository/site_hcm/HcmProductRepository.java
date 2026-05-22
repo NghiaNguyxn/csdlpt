@@ -16,6 +16,7 @@ import java.util.Optional;
 public interface HcmProductRepository extends JpaRepository<ProductBasic, Integer> {
     List<ProductBasic> findByIsActiveTrue();
     Optional<ProductBasic> findByIdAndIsActiveTrue(Integer id);
+    boolean existsByCategory_Id(Integer categoryId);
     @Modifying
     @Query(value = "INSERT INTO product_basic (id, name, price, category_id, is_active) " +
                    "VALUES (:id, :name, :price, :categoryId, :isActive) " +

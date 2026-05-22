@@ -10,6 +10,6 @@ import com.example.csdlpt.enums.ReplicationStatus;
 
 @Repository
 public interface HanoiReplicationLogRepository extends JpaRepository<ReplicationLog, Integer> {
-    List<ReplicationLog> findByStatusAndTargetSite(ReplicationStatus status, String targetSite);
+    List<ReplicationLog> findByStatusAndTargetSiteOrderByIdAsc(ReplicationStatus status, String targetSite);
     List<ReplicationLog> findByEntityTypeAndStatus(String entityType, ReplicationStatus status);
 }
