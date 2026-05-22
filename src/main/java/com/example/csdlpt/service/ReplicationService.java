@@ -66,7 +66,6 @@ public class ReplicationService {
         hcmProductRepository.replicateProduct(id.intValue(), name, price, categoryId, isActive);
     }
 
-
     @Transactional(value = "danangTransactionManager")
     public void replicateWarehouseToDanang(Long id, String code, String name, String location, String region, Integer siteId) {
         danangWarehouseRepository.upsertWarehouse(id.intValue(), code, name, location, region, siteId);

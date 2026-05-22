@@ -1,4 +1,4 @@
-package com.example.csdlpt.repository.site_hn;
+package com.example.csdlpt.repository.site_dn;
 
 import java.util.List;
 
@@ -9,7 +9,6 @@ import com.example.csdlpt.entity.ReplicationLog;
 import com.example.csdlpt.enums.ReplicationStatus;
 
 @Repository
-public interface HanoiReplicationLogRepository extends JpaRepository<ReplicationLog, Integer> {
-    List<ReplicationLog> findByStatusAndTargetSiteOrderByIdAsc(ReplicationStatus status, String targetSite);
+public interface DanangReplicationLogRepository extends JpaRepository<ReplicationLog, Integer> {
     List<ReplicationLog> findByEntityTypeAndStatus(String entityType, ReplicationStatus status);
 }

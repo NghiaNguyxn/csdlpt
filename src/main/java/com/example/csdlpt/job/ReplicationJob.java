@@ -2,11 +2,9 @@ package com.example.csdlpt.job;
 
 import java.util.List;
 
-import org.springframework.context.annotation.Profile;
 import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Component;
 
-import com.example.csdlpt.entity.Category;
 import com.example.csdlpt.entity.ProductBasic;
 import com.example.csdlpt.entity.ReplicationLog;
 import com.example.csdlpt.entity.Warehouse;
@@ -25,7 +23,6 @@ import lombok.experimental.FieldDefaults;
 import lombok.extern.slf4j.Slf4j;
 
 @Component
-@Profile("!test")
 @RequiredArgsConstructor
 @Slf4j
 @FieldDefaults(level = AccessLevel.PRIVATE, makeFinal = true)
@@ -39,7 +36,7 @@ public class ReplicationJob {
 
     @Scheduled(fixedDelay = 10000)
     public void processPendingLogs() {
-        // Job chỉ xử lý replication log ở master HN; test profile tắt job để tránh H2 thiếu schema thật.
+        // Job chỉ xử lý replication log ở master HN.
         List<ReplicationLog> pendingLogs = logRepository.findByStatusAndTargetSiteOrderByIdAsc(ReplicationStatus.PENDING, "DN");
         pendingLogs.addAll(logRepository.findByStatusAndTargetSiteOrderByIdAsc(ReplicationStatus.PENDING, "HCM"));
 
