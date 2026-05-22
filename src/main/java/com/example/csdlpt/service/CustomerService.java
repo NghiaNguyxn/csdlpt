@@ -1,11 +1,17 @@
 package com.example.csdlpt.service;
 
+import java.util.Comparator;
+import java.util.List;
+import java.util.Optional;
+import java.util.stream.Stream;
+
+import org.springframework.stereotype.Service;
+
 import com.example.csdlpt.dto.request.CustomerRequest;
 import com.example.csdlpt.dto.response.CustomerResponse;
 import com.example.csdlpt.entity.CustomerIdentity;
 import com.example.csdlpt.entity.CustomerProfile;
 import com.example.csdlpt.entity.Site;
-import com.example.csdlpt.enums.ReplicationAction;
 import com.example.csdlpt.exception.AppException;
 import com.example.csdlpt.exception.ErrorCode;
 import com.example.csdlpt.repository.site_dn.DanangCustomerIdentityRepository;
@@ -14,17 +20,11 @@ import com.example.csdlpt.repository.site_hcm.HcmCustomerIdentityRepository;
 import com.example.csdlpt.repository.site_hcm.HcmCustomerProfileRepository;
 import com.example.csdlpt.repository.site_hn.HanoiCustomerIdentityRepository;
 import com.example.csdlpt.repository.site_hn.HanoiCustomerProfileRepository;
+
 import lombok.AccessLevel;
 import lombok.RequiredArgsConstructor;
 import lombok.experimental.FieldDefaults;
 import lombok.extern.slf4j.Slf4j;
-import org.springframework.stereotype.Service;
-import org.springframework.transaction.annotation.Transactional;
-
-import java.util.Comparator;
-import java.util.List;
-import java.util.Optional;
-import java.util.stream.Stream;
 
 @Service
 @Slf4j
@@ -38,7 +38,7 @@ public class CustomerService {
     HanoiCustomerProfileRepository hanoiCustomerProfileRepository;
     DanangCustomerProfileRepository danangCustomerProfileRepository;
     HcmCustomerProfileRepository hcmCustomerProfileRepository;
-    ReplicationService replicationService;
+    CustomerIdentityCreationHelper creationHelper;
 
     public List<CustomerResponse> findAllCustomers() {
         return Stream.of(
@@ -51,7 +51,10 @@ public class CustomerService {
     }
 
     public CustomerResponse findCustomerById(Long id) {
+        // Thử lần lượt cả 3 site vì identity có thể chưa được replicate đủ (lazy protocol)
         CustomerIdentity identity = hanoiCustomerIdentityRepository.findById(id)
+                .or(() -> danangCustomerIdentityRepository.findById(id))
+                .or(() -> hcmCustomerIdentityRepository.findById(id))
                 .orElseThrow(() -> new AppException(ErrorCode.INVALID_KEY, "Không tìm thấy khách hàng ID=" + id));
 
         Integer mainSiteId = identity.getMainSite().getId();
@@ -62,11 +65,24 @@ public class CustomerService {
         return toResponse(profile, siteCode(mainSiteId));
     }
 
-    @Transactional(value = "hanoiTransactionManager")
+    /**
+     * Tạo khách hàng mới tại site do mainSiteId quyết định (lazy distributed protocol).
+     * Identity được ghi tại site nguồn + log replication sang 2 site còn lại (trong cùng transaction).
+     * Profile được ghi tại site nguồn.
+     * CustomerReplicationJob sẽ định kỳ đồng bộ identity sang 2 site còn lại.
+     */
     public CustomerResponse createCustomer(CustomerRequest request) {
         validateRequest(request);
-        if (hanoiCustomerIdentityRepository.existsById(request.getId())) {
-            throw new AppException(ErrorCode.INVALID_KEY, "Khách hàng đã tồn tại tại HN master");
+
+        boolean exists = switch (request.getMainSiteId()) {
+            case 1 -> hanoiCustomerIdentityRepository.existsById(request.getId());
+            case 2 -> danangCustomerIdentityRepository.existsById(request.getId());
+            case 3 -> hcmCustomerIdentityRepository.existsById(request.getId());
+            default -> false;
+        };
+        if (exists) {
+            throw new AppException(ErrorCode.INVALID_KEY,
+                    "Khách hàng ID=" + request.getId() + " đã tồn tại tại site " + request.getMainSiteId());
         }
 
         CustomerIdentity identity = CustomerIdentity.builder()
@@ -76,44 +92,57 @@ public class CustomerService {
                 .mainSite(Site.builder().id(request.getMainSiteId()).build())
                 .build();
 
-        CustomerIdentity savedIdentity = hanoiCustomerIdentityRepository.save(identity);
-        ensureIdentityAtFragmentSite(savedIdentity);
-        CustomerProfile savedProfile = saveProfileAtSite(request, savedIdentity);
-        replicationService.logChange(savedIdentity.getId(), "CUSTOMER_IDENTITY", ReplicationAction.INSERT);
+        CustomerIdentity savedIdentity = switch (request.getMainSiteId()) {
+            case 1 -> creationHelper.createAndLogAtHanoi(identity);
+            case 2 -> creationHelper.createAndLogAtDanang(identity);
+            case 3 -> creationHelper.createAndLogAtHcm(identity);
+            default -> throw new AppException(ErrorCode.INVALID_KEY, "mainSiteId không hợp lệ (1=HN, 2=DN, 3=HCM)");
+        };
 
-        log.info("Đã tạo customer ID={} với profile tại site {}", savedIdentity.getId(), request.getMainSiteId());
+        CustomerProfile savedProfile = saveProfileAtSite(request, savedIdentity);
+
+        log.info("Đã tạo customer ID={} tại site {}, replication log đã ghi cho 2 site còn lại",
+                savedIdentity.getId(), request.getMainSiteId());
         return toResponse(savedProfile, siteCode(request.getMainSiteId()));
     }
 
-    @Transactional(value = "hanoiTransactionManager")
+    
+    // Cập nhật khách hàng — tra cứu identity tại site gốc (mainSiteId trong request).
+    
     public CustomerResponse updateCustomer(Long id, CustomerRequest request) {
         validateRequest(request);
-        CustomerIdentity identity = hanoiCustomerIdentityRepository.findById(id)
-                .orElseThrow(() -> new AppException(ErrorCode.INVALID_KEY, "Không tìm thấy khách hàng ID=" + id));
 
+        CustomerIdentity identity = findIdentityBySite(id, request.getMainSiteId());
         Integer oldMainSiteId = identity.getMainSite().getId();
         identity.setEmail(request.getEmail());
         identity.setPassword(request.getPassword());
         identity.setMainSite(Site.builder().id(request.getMainSiteId()).build());
 
-        CustomerIdentity savedIdentity = hanoiCustomerIdentityRepository.save(identity);
-        ensureIdentityAtFragmentSite(savedIdentity);
+        CustomerIdentity savedIdentity = switch (request.getMainSiteId()) {
+            case 1 -> creationHelper.updateAndLogAtHanoi(identity);
+            case 2 -> creationHelper.updateAndLogAtDanang(identity);
+            case 3 -> creationHelper.updateAndLogAtHcm(identity);
+            default -> throw new AppException(ErrorCode.INVALID_KEY, "mainSiteId không hợp lệ");
+        };
+
         if (!oldMainSiteId.equals(request.getMainSiteId())) {
             deleteProfileAtSite(id, oldMainSiteId);
         }
         CustomerProfile savedProfile = saveProfileAtSite(request, savedIdentity);
-        replicationService.logChange(savedIdentity.getId(), "CUSTOMER_IDENTITY", ReplicationAction.UPDATE);
 
-        log.info("Đã cập nhật customer ID={} và route profile sang site {}", id, request.getMainSiteId());
+        log.info("Đã cập nhật customer ID={} tại site {}", id, request.getMainSiteId());
         return toResponse(savedProfile, siteCode(request.getMainSiteId()));
     }
 
-    @Transactional(value = "hanoiTransactionManager")
     public void deleteCustomer(Long id) {
+        // Tìm identity tại bất kỳ site nào để lấy mainSiteId
         CustomerIdentity identity = hanoiCustomerIdentityRepository.findById(id)
+                .or(() -> danangCustomerIdentityRepository.findById(id))
+                .or(() -> hcmCustomerIdentityRepository.findById(id))
                 .orElseThrow(() -> new AppException(ErrorCode.INVALID_KEY, "Không tìm thấy khách hàng ID=" + id));
 
         deleteProfileAtSite(id, identity.getMainSite().getId());
+        // Xóa identity khỏi cả 3 site (eager delete)
         hanoiCustomerIdentityRepository.deleteById(id);
         danangCustomerIdentityRepository.deleteReplicatedCustomerIdentity(id);
         hcmCustomerIdentityRepository.deleteReplicatedCustomerIdentity(id);
@@ -131,6 +160,21 @@ public class CustomerService {
         }
     }
 
+    private CustomerIdentity findIdentityBySite(Long id, Integer siteId) {
+        return switch (siteId) {
+            case 1 -> hanoiCustomerIdentityRepository.findById(id)
+                    .orElseThrow(() -> new AppException(ErrorCode.INVALID_KEY,
+                            "Không tìm thấy khách hàng ID=" + id + " tại HN"));
+            case 2 -> danangCustomerIdentityRepository.findById(id)
+                    .orElseThrow(() -> new AppException(ErrorCode.INVALID_KEY,
+                            "Không tìm thấy khách hàng ID=" + id + " tại DN"));
+            case 3 -> hcmCustomerIdentityRepository.findById(id)
+                    .orElseThrow(() -> new AppException(ErrorCode.INVALID_KEY,
+                            "Không tìm thấy khách hàng ID=" + id + " tại HCM"));
+            default -> throw new AppException(ErrorCode.INVALID_KEY, "mainSiteId không hợp lệ");
+        };
+    }
+
     private Optional<CustomerProfile> findProfileBySite(Long id, Integer siteId) {
         return switch (siteId) {
             case 1 -> hanoiCustomerProfileRepository.findById(id);
@@ -144,7 +188,6 @@ public class CustomerService {
         CustomerProfile profile = CustomerProfile.builder()
                 .id(identity.getId())
                 .identity(identity)
-                .mainSite(Site.builder().id(request.getMainSiteId()).build())
                 .name(request.getName())
                 .phone(request.getPhone())
                 .address(request.getAddress())
@@ -167,20 +210,9 @@ public class CustomerService {
         }
     }
 
-    private void ensureIdentityAtFragmentSite(CustomerIdentity identity) {
-        Integer mainSiteId = identity.getMainSite().getId();
-        if (mainSiteId == 2) {
-            danangCustomerIdentityRepository.replicateCustomerIdentity(
-                    identity.getId(), identity.getEmail(), identity.getPassword(), mainSiteId);
-        } else if (mainSiteId == 3) {
-            hcmCustomerIdentityRepository.replicateCustomerIdentity(
-                    identity.getId(), identity.getEmail(), identity.getPassword(), mainSiteId);
-        }
-    }
-
     private CustomerResponse toResponse(CustomerProfile profile, String fragmentSiteCode) {
         CustomerIdentity identity = profile.getIdentity();
-        Site mainSite = profile.getMainSite();
+        Site mainSite = identity != null ? identity.getMainSite() : null;
 
         return CustomerResponse.builder()
                 .id(profile.getId())

@@ -51,11 +51,9 @@ CREATE TABLE customer_identity (
 
 CREATE TABLE customer_profile (
     id BIGINT PRIMARY KEY REFERENCES customer_identity(id),
-    main_site_id INT REFERENCES site(id) NOT NULL,
     name VARCHAR(100) NOT NULL,
     phone VARCHAR(20),
-    address TEXT,
-    FOREIGN KEY (id, main_site_id) REFERENCES customer_identity(id, main_site_id)
+    address TEXT
 );
 
 CREATE TABLE orders (
@@ -96,20 +94,6 @@ CREATE TABLE transaction_log (
     participants TEXT,                       -- Danh sách các site tham gia
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
     updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-);
-
-CREATE TABLE transaction_event_log (
-    id BIGSERIAL PRIMARY KEY,
-    transaction_id VARCHAR(100) NOT NULL,
-    event_type VARCHAR(50) NOT NULL,          -- TX_BEGIN, LOCK_REQUEST, LOCK_GRANTED, LOCK_TIMEOUT, TX_STATUS
-    actor_role VARCHAR(30) NOT NULL,          -- COORDINATOR, PARTICIPANT, LOCK_MANAGER
-    site_code VARCHAR(20),
-    resource_key VARCHAR(120),                -- Ví dụ: inventory[warehouseId=1,productId=2]
-    lock_mode VARCHAR(20),                    -- RL/WL theo giáo trình locking-based algorithms
-    status VARCHAR(30),                       -- INITIAL, WAIT, GRANTED, TIMEOUT, PREPARED, COMMITTED, ABORTED
-    wait_millis BIGINT,
-    message TEXT,
-    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 );
 
 CREATE TABLE transaction_participant_log (
@@ -158,12 +142,12 @@ INSERT INTO customer_identity (id, email, password, main_site_id) VALUES
 
 -- CUSTOMER PROFILE FRAGMENTATION: HCM chỉ lưu hồ sơ chi tiết của khách có main_site = HCM.
 -- Fragment: CustomerProfile_HCM = customer_profile ⋈ customer_identity WHERE main_site_id = 3.
-INSERT INTO customer_profile (id, main_site_id, name, phone, address) VALUES
-    (3, 3, 'Le Van C', '0901234567', '789 Nguyen Hue, Quan 1, TP.HCM');
+INSERT INTO customer_profile (id, name, phone, address) VALUES
+    (3, 'Le Van C', '0901234567', '789 Nguyen Hue, Quan 1, TP.HCM');
 
 -- Q5 CONTROL DATA: đơn 1002 chỉ xuất từ một kho, không được trả về trong Q5.
-INSERT INTO orders (id, customer_id, status, warehouse_id, site_id) VALUES
-    (1002, 3, 'COMPLETED', 3, 3);
+INSERT INTO orders (id, customer_id, status, site_id) VALUES
+    (1002, 3, 'COMPLETED', 3);
 
 INSERT INTO order_detail (order_id, product_id, warehouse_id, quantity, price) VALUES
     (1002, 2, 3, 1, 1200.00);
@@ -175,7 +159,6 @@ SELECT setval('site_id_seq', (SELECT MAX(id) FROM site));
 SELECT setval('warehouse_id_seq', (SELECT MAX(id) FROM warehouse));
 -- Không cần setval cho customer_identity vì dùng BIGINT (Snowflake/Manual ID)
 SELECT setval('replication_log_id_seq', COALESCE((SELECT MAX(id) FROM replication_log), 1));
-SELECT setval('transaction_event_log_id_seq', COALESCE((SELECT MAX(id) FROM transaction_event_log), 1));
 SELECT setval('transaction_participant_log_id_seq', COALESCE((SELECT MAX(id) FROM transaction_participant_log), 1));
 
 -- INDICES
@@ -186,7 +169,4 @@ CREATE INDEX idx_order_detail_warehouse ON order_detail(warehouse_id);
 CREATE INDEX idx_orders_date ON orders(order_date);
 CREATE INDEX idx_orders_site ON orders(site_id);
 CREATE INDEX idx_customer_identity_main_site ON customer_identity(main_site_id);
-CREATE INDEX idx_customer_profile_main_site ON customer_profile(main_site_id);
-CREATE INDEX idx_transaction_event_log_tx ON transaction_event_log(transaction_id);
-CREATE INDEX idx_transaction_event_log_created_at ON transaction_event_log(created_at);
 CREATE INDEX idx_transaction_participant_log_tx ON transaction_participant_log(transaction_id);

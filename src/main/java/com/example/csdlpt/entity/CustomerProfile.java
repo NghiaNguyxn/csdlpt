@@ -1,7 +1,18 @@
 package com.example.csdlpt.entity;
 
-import jakarta.persistence.*;
-import lombok.*;
+import jakarta.persistence.Column;
+import jakarta.persistence.Entity;
+import jakarta.persistence.FetchType;
+import jakarta.persistence.Id;
+import jakarta.persistence.JoinColumn;
+import jakarta.persistence.MapsId;
+import jakarta.persistence.OneToOne;
+import jakarta.persistence.Table;
+import lombok.AllArgsConstructor;
+import lombok.Builder;
+import lombok.Getter;
+import lombok.NoArgsConstructor;
+import lombok.Setter;
 
 @Entity
 @Table(name = "customer_profile")
@@ -18,10 +29,6 @@ public class CustomerProfile {
     @MapsId
     @JoinColumn(name = "id")
     private CustomerIdentity identity;
-
-    @ManyToOne(fetch = FetchType.EAGER)
-    @JoinColumn(name = "main_site_id", nullable = false)
-    private Site mainSite;
 
     @Column(nullable = false, length = 100)
     private String name;

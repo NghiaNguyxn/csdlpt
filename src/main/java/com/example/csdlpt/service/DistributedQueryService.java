@@ -1,11 +1,8 @@
 package com.example.csdlpt.service;
 
-import java.util.ArrayList;
 import java.util.Comparator;
-import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
-import java.util.Set;
 import java.util.stream.Collectors;
 import java.util.stream.Stream;
 
@@ -13,14 +10,9 @@ import org.springframework.stereotype.Service;
 
 import com.example.csdlpt.dto.response.DistributedOrderLineResponse;
 import com.example.csdlpt.dto.response.MultiWarehouseOrderResponse;
-import com.example.csdlpt.dto.response.QueryPerformanceResponse;
-import com.example.csdlpt.entity.Inventory;
 import com.example.csdlpt.repository.MultiWarehouseOrderLineProjection;
-import com.example.csdlpt.repository.site_dn.DanangInventoryRepository;
 import com.example.csdlpt.repository.site_dn.DanangOrderDetailRepository;
-import com.example.csdlpt.repository.site_hcm.HcmInventoryRepository;
 import com.example.csdlpt.repository.site_hcm.HcmOrderDetailRepository;
-import com.example.csdlpt.repository.site_hn.HanoiInventoryRepository;
 import com.example.csdlpt.repository.site_hn.HanoiOrderDetailRepository;
 
 import lombok.AccessLevel;
@@ -28,6 +20,17 @@ import lombok.RequiredArgsConstructor;
 import lombok.experimental.FieldDefaults;
 import lombok.extern.slf4j.Slf4j;
 
+/**
+ * Q5 — Distributed Join: tìm đơn hàng có sản phẩm xuất từ nhiều kho/site.
+ *
+ * Kiến trúc dữ liệu: mỗi order (kèm toàn bộ order_detail) được lưu tại site
+ * coordinator tạo đơn. Warehouse và Site được replicate ở tất cả các site.
+ *
+ * Chiến lược pushdown:
+ *   - Mỗi site chạy CTE để GROUP BY / HAVING lọc qualifying order_id tại DB.
+ *   - Chỉ kéo về các dòng detail của đơn đủ điều kiện (không kéo toàn bộ).
+ *   - Coordinator (Java) union kết quả từ 3 site, format response.
+ */
 @Service
 @Slf4j
 @RequiredArgsConstructor
@@ -37,129 +40,82 @@ public class DistributedQueryService {
     HanoiOrderDetailRepository hanoiOrderDetailRepository;
     DanangOrderDetailRepository danangOrderDetailRepository;
     HcmOrderDetailRepository hcmOrderDetailRepository;
-    HanoiInventoryRepository hanoiInventoryRepository;
-    DanangInventoryRepository danangInventoryRepository;
-    HcmInventoryRepository hcmInventoryRepository;
 
-    public List<MultiWarehouseOrderResponse> findOrdersExportedFromMultipleWarehouses() {
+    // Q5-A: nhiều kho: Mỗi site chạy CTE lọc order có COUNT(DISTINCT warehouse_id) > 1.
+    // Union kết quả từ HN + DN + HCM (mỗi order_id chỉ tồn tại ở 1 site).
+    public List<MultiWarehouseOrderResponse> findOrdersFromMultipleWarehouses() {
+        log.info("[Q5-A] Bắt đầu distributed join — đơn hàng từ nhiều kho");
+
         List<DistributedOrderLineResponse> allLines = Stream.of(
-                hanoiOrderDetailRepository.findDistributedOrderLines(),
-                danangOrderDetailRepository.findDistributedOrderLines(),
-                hcmOrderDetailRepository.findDistributedOrderLines())
+                hanoiOrderDetailRepository.findMultiWarehouseOrderLines(),
+                danangOrderDetailRepository.findMultiWarehouseOrderLines(),
+                hcmOrderDetailRepository.findMultiWarehouseOrderLines())
                 .flatMap(List::stream)
                 .map(this::toLineResponse)
                 .toList();
 
-        Map<Long, List<DistributedOrderLineResponse>> linesByOrder = allLines.stream()
+        return buildResponse(allLines);
+    }
+
+    // Q5-B: nhiều site: Mỗi site chạy CTE lọc order có COUNT(DISTINCT w.site_id) > 1
+    // Union kết quả từ HN + DN + HCM.
+    public List<MultiWarehouseOrderResponse> findOrdersFromMultipleSites() {
+        log.info("[Q5-B] Bắt đầu distributed join — đơn hàng từ nhiều site");
+
+        List<DistributedOrderLineResponse> allLines = Stream.of(
+                hanoiOrderDetailRepository.findMultiSiteOrderLines(),
+                danangOrderDetailRepository.findMultiSiteOrderLines(),
+                hcmOrderDetailRepository.findMultiSiteOrderLines())
+                .flatMap(List::stream)
+                .map(this::toLineResponse)
+                .toList();
+
+        return buildResponse(allLines);
+    }
+
+    // Group các dòng detail theo order_id (mỗi order_id chỉ ở 1 site nên không
+    // có trùng lặp sau union), tính warehouseCount và siteCount, format response.
+    private List<MultiWarehouseOrderResponse> buildResponse(List<DistributedOrderLineResponse> lines) {
+        Map<Long, List<DistributedOrderLineResponse>> byOrder = lines.stream()
                 .collect(Collectors.groupingBy(DistributedOrderLineResponse::getOrderId));
 
-        return linesByOrder.entrySet().stream()
-                .map(entry -> toMultiWarehouseOrder(entry.getKey(), entry.getValue()))
-                .filter(response -> response.getWarehouseCount() > 1)
+        return byOrder.entrySet().stream()
+                .map(e -> toMultiWarehouseOrder(e.getKey(), e.getValue()))
                 .sorted(Comparator.comparing(MultiWarehouseOrderResponse::getOrderId))
                 .toList();
     }
 
-    public QueryPerformanceResponse compareQ1CentralizedAndDistributed(Integer productId) {
-        final int ITERATIONS = 5;
-
-        // === WARM-UP: khởi tạo connection pool, query plan cache ===
-        hanoiInventoryRepository.findByProductId(productId);
-        danangInventoryRepository.findByProductId(productId);
-        hcmInventoryRepository.findByProductId(productId);
-        hanoiInventoryRepository.sumQuantityByProductId(productId);
-        danangInventoryRepository.sumQuantityByProductId(productId);
-        hcmInventoryRepository.sumQuantityByProductId(productId);
-
-        // === ĐO XEN KẼ: C → D → C → D → ... để loại bỏ ordering bias ===
-        long[] centralizedSamples = new long[ITERATIONS];
-        long[] distributedSamples = new long[ITERATIONS];
-        List<Inventory> centralizedRows = new ArrayList<>();
-        int centralizedQuantity = 0;
-        int distributedQuantity = 0;
-
-        for (int i = 0; i < ITERATIONS; i++) {
-            // Centralized turn
-            centralizedRows.clear();
-            long cStart = System.nanoTime();
-            centralizedRows.addAll(hanoiInventoryRepository.findByProductId(productId));
-            centralizedRows.addAll(danangInventoryRepository.findByProductId(productId));
-            centralizedRows.addAll(hcmInventoryRepository.findByProductId(productId));
-            centralizedQuantity = centralizedRows.stream().map(Inventory::getQuantity).reduce(0, Integer::sum);
-            centralizedSamples[i] = System.nanoTime() - cStart;
-
-            // Distributed turn
-            long dStart = System.nanoTime();
-            int hn = hanoiInventoryRepository.sumQuantityByProductId(productId);
-            int dn = danangInventoryRepository.sumQuantityByProductId(productId);
-            int hcm = hcmInventoryRepository.sumQuantityByProductId(productId);
-            distributedQuantity = hn + dn + hcm;
-            distributedSamples[i] = System.nanoTime() - dStart;
-        }
-
-        // Lấy trung bình (bỏ sample đầu tiên vì vẫn có thể còn JIT bias)
-        long centralizedElapsed = 0;
-        long distributedElapsed = 0;
-        for (int i = 1; i < ITERATIONS; i++) {
-            centralizedElapsed += centralizedSamples[i];
-            distributedElapsed += distributedSamples[i];
-        }
-        centralizedElapsed /= (ITERATIONS - 1);
-        distributedElapsed /= (ITERATIONS - 1);
-
-        log.info("Q6 productId={}, centralized avg={}ns, distributed avg={}ns (over {} iterations)",
-                productId, centralizedElapsed, distributedElapsed, ITERATIONS - 1);
-
-        return QueryPerformanceResponse.builder()
-                .productId(productId)
-                .centralizedQuantity(centralizedQuantity)
-                .distributedQuantity(distributedQuantity)
-                .centralizedElapsedNanos(centralizedElapsed)
-                .distributedElapsedNanos(distributedElapsed)
-                .centralizedElapsedMillis(toMillis(centralizedElapsed))
-                .distributedElapsedMillis(toMillis(distributedElapsed))
-                .centralizedRowsTransferred(centralizedRows.size())
-                .distributedRowsTransferred(3)
-                .iterations(ITERATIONS - 1)
-                .centralizedStrategy("Centralized simulation: transfer inventory rows to coordinator, then sum")
-                .distributedStrategy("Distributed Q1: each site computes SUM(quantity), coordinator transfers only 3 partial totals")
-                .build();
-    }
-
-    private DistributedOrderLineResponse toLineResponse(MultiWarehouseOrderLineProjection projection) {
+    private DistributedOrderLineResponse toLineResponse(MultiWarehouseOrderLineProjection p) {
         return DistributedOrderLineResponse.builder()
-                .orderId(projection.getOrderId())
-                .siteCode(projection.getSiteCode())
-                .warehouseId(projection.getWarehouseId())
-                .warehouseCode(projection.getWarehouseCode())
-                .warehouseName(projection.getWarehouseName())
-                .productId(projection.getProductId())
-                .productName(projection.getProductName())
-                .quantity(projection.getQuantity())
-                .price(projection.getPrice())
+                .orderId(p.getOrderId())
+                .siteCode(p.getSiteCode())
+                .warehouseId(p.getWarehouseId())
+                .warehouseCode(p.getWarehouseCode())
+                .warehouseName(p.getWarehouseName())
+                .productId(p.getProductId())
+                .productName(p.getProductName())
+                .quantity(p.getQuantity())
+                .price(p.getPrice())
                 .build();
     }
 
     private MultiWarehouseOrderResponse toMultiWarehouseOrder(Long orderId, List<DistributedOrderLineResponse> lines) {
-        Set<String> warehouseKeys = lines.stream()
-                .map(line -> line.getSiteCode() + ":" + line.getWarehouseId())
-                .collect(Collectors.toCollection(LinkedHashSet::new));
-
         List<String> siteCodes = lines.stream()
                 .map(DistributedOrderLineResponse::getSiteCode)
-                .distinct()
-                .sorted()
-                .toList();
+                .distinct().sorted().toList();
+
+        List<Integer> warehouseIds = lines.stream()
+                .map(DistributedOrderLineResponse::getWarehouseId)
+                .distinct().toList();
 
         List<String> warehouseCodes = lines.stream()
                 .map(DistributedOrderLineResponse::getWarehouseCode)
-                .distinct()
-                .sorted()
-                .toList();
+                .distinct().sorted().toList();
 
         return MultiWarehouseOrderResponse.builder()
                 .orderId(orderId)
-                .warehouseCount(warehouseKeys.size())
+                .warehouseCount(warehouseIds.size())
+                .siteCount(siteCodes.size())
                 .siteCodes(siteCodes)
                 .warehouseCodes(warehouseCodes)
                 .lines(lines.stream()
@@ -169,9 +125,4 @@ public class DistributedQueryService {
                         .toList())
                 .build();
     }
-
-    private Double toMillis(long nanos) {
-        return nanos / 1_000_000.0;
-    }
-
 }
