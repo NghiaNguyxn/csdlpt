@@ -39,6 +39,7 @@ public class CustomerService {
     DanangCustomerProfileRepository danangCustomerProfileRepository;
     HcmCustomerProfileRepository hcmCustomerProfileRepository;
     CustomerIdentityCreationHelper creationHelper;
+    CustomerIdGenerator customerIdGenerator;
 
     public List<CustomerResponse> findAllCustomers() {
         return Stream.of(
@@ -74,19 +75,11 @@ public class CustomerService {
     public CustomerResponse createCustomer(CustomerRequest request) {
         validateRequest(request);
 
-        boolean exists = switch (request.getMainSiteId()) {
-            case 1 -> hanoiCustomerIdentityRepository.existsById(request.getId());
-            case 2 -> danangCustomerIdentityRepository.existsById(request.getId());
-            case 3 -> hcmCustomerIdentityRepository.existsById(request.getId());
-            default -> false;
-        };
-        if (exists) {
-            throw new AppException(ErrorCode.INVALID_KEY,
-                    "Khách hàng ID=" + request.getId() + " đã tồn tại tại site " + request.getMainSiteId());
-        }
+        Long customerId = customerIdGenerator.generate(request.getMainSiteId());
+        ensureCustomerIdNotExistsAnywhere(customerId);
 
         CustomerIdentity identity = CustomerIdentity.builder()
-                .id(request.getId())
+                .id(customerId)
                 .email(request.getEmail())
                 .password(request.getPassword())
                 .mainSite(Site.builder().id(request.getMainSiteId()).build())
@@ -151,12 +144,22 @@ public class CustomerService {
     }
 
     private void validateRequest(CustomerRequest request) {
-        if (request.getId() == null || request.getEmail() == null || request.getPassword() == null
+        if (request.getEmail() == null || request.getPassword() == null
                 || request.getMainSiteId() == null || request.getName() == null) {
             throw new AppException(ErrorCode.INVALID_KEY, "Thiếu thông tin bắt buộc của khách hàng");
         }
         if (request.getMainSiteId() < 1 || request.getMainSiteId() > 3) {
             throw new AppException(ErrorCode.INVALID_KEY, "mainSiteId chỉ nhận 1=HN, 2=DN, 3=HCM");
+        }
+    }
+
+    private void ensureCustomerIdNotExistsAnywhere(Long id) {
+        boolean exists = hanoiCustomerIdentityRepository.existsById(id)
+                || danangCustomerIdentityRepository.existsById(id)
+                || hcmCustomerIdentityRepository.existsById(id);
+        if (exists) {
+            throw new AppException(ErrorCode.INVALID_KEY,
+                    "Khách hàng ID=" + id + " đã tồn tại ở ít nhất một site");
         }
     }
 

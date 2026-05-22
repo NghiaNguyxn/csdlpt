@@ -128,9 +128,12 @@ INSERT INTO product_detail (product_id, description) VALUES
     (1, 'Macbook Pro M3 với hiệu năng cực mạnh từ chip 3nm Apple silicon'),
     (2, 'iPhone 15 Pro vỏ Titanium siêu bền và nhẹ');
 
--- FRAGMENTATION: Phân mảnh ngang (Primary Horizontal) cho Warehouse miền Bắc
+-- REPLICATED REFERENCE DATA: warehouse metadata is available at every site.
+-- Inventory remains horizontally fragmented; only local warehouse inventory is stored below.
 INSERT INTO warehouse (id, code, name, location, region, site_id) VALUES
-    (1, 'WH-HN-01', 'Kho Hoàn Kiếm', 'Hà Nội', 'North', 1);
+    (1, 'WH-HN-01', 'Kho Hoàn Kiếm', 'Hà Nội', 'North', 1),
+    (2, 'WH-DN-01', 'Kho Hải Châu', 'Đà Nẵng', 'Central', 2),
+    (3, 'WH-HCM-01', 'Kho Quận 1', 'TP.HCM', 'South', 3);
 
 -- Khởi tạo tồn kho cho các kho tại HN
 INSERT INTO inventory (warehouse_id, product_id, quantity) VALUES
@@ -150,13 +153,14 @@ INSERT INTO customer_identity (id, email, password, main_site_id) VALUES
 INSERT INTO customer_profile (id, name, phone, address) VALUES
      (1, 'Nguyen Van A', '0912345678', '123 Pho Hue, Hai Ba Trung, Ha Noi');
 
--- Q5 DEMO: đơn 1001 được xuất từ nhiều kho ở nhiều site.
--- Tại HN giữ phần xuất từ WH-HN-01; DN giữ phần còn lại từ WH-DN-01.
+-- Q5 DEMO: order 1001 is coordinated at HN and contains all detail lines here.
+-- The lines reference warehouses from HN and DN, so local pushdown can detect multi-site export.
 INSERT INTO orders (id, customer_id, status, site_id) VALUES
      (1001, 1, 'PENDING', 1);
 
 INSERT INTO order_detail (order_id, product_id, warehouse_id, quantity, price) VALUES
      (1001, 1, 1, 1, 3000.00),
+     (1001, 1, 2, 1, 3000.00),
      (1001, 2, 1, 1, 1200.00);
 
 -- CẬP NHẬT LẠI SEQUENCE CHO CÁC BẢNG CÓ KHÓA CHÍNH TỰ TĂNG (SERIAL)

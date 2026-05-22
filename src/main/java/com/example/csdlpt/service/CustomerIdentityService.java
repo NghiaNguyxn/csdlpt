@@ -39,6 +39,7 @@ public class CustomerIdentityService {
     DanangCustomerIdentityRepository danangIdentityRepo;
     HcmCustomerIdentityRepository hcmIdentityRepo;
     CustomerIdentityCreationHelper creationHelper;
+    CustomerIdGenerator customerIdGenerator;
 
     /**
      * Tạo customer_identity tại site do mainSiteId quyết định.
@@ -46,9 +47,10 @@ public class CustomerIdentityService {
      */
     public CustomerIdentityResponse createCustomerIdentity(CustomerIdentityRequest request) {
         validateRequest(request);
-        checkDuplicateAtSite(request.getId(), request.getMainSiteId());
+        Long customerId = customerIdGenerator.generate(request.getMainSiteId());
+        checkDuplicateAcrossSites(customerId);
 
-        CustomerIdentity identity = buildIdentity(request);
+        CustomerIdentity identity = buildIdentity(customerId, request);
 
         CustomerIdentity saved = switch (request.getMainSiteId()) {
             case 1 -> creationHelper.createAndLogAtHanoi(identity);
@@ -84,10 +86,9 @@ public class CustomerIdentityService {
     }
 
     private void validateRequest(CustomerIdentityRequest request) {
-        if (request.getId() == null || request.getEmail() == null
-                || request.getPassword() == null || request.getMainSiteId() == null) {
+        if (request.getEmail() == null || request.getPassword() == null || request.getMainSiteId() == null) {
             throw new AppException(ErrorCode.INVALID_KEY,
-                    "Thiếu thông tin bắt buộc: id, email, password, mainSiteId");
+                    "Thiếu thông tin bắt buộc: email, password, mainSiteId");
         }
         if (request.getMainSiteId() < 1 || request.getMainSiteId() > 3) {
             throw new AppException(ErrorCode.INVALID_KEY, "mainSiteId chỉ nhận 1=HN, 2=DN, 3=HCM");
@@ -95,20 +96,17 @@ public class CustomerIdentityService {
     }
 
     /**
-     * Kiểm tra trùng ID tại site nguồn.
-     * Lưu ý: do lazy replication, ID có thể chưa được đồng bộ đến site khác —
-     * đây là đánh đổi chấp nhận được trong mô hình eventual consistency.
+     * Kiểm tra trùng ID trên cả 3 site trước khi tạo.
+     * Cách này giảm rủi ro trùng khóa trong mô hình lazy replication; để chống
+     * race tuyệt đối vẫn cần bộ sinh ID toàn cục hoặc phân vùng ID theo site.
      */
-    private void checkDuplicateAtSite(Long id, Integer siteId) {
-        boolean exists = switch (siteId) {
-            case 1 -> hanoiIdentityRepo.existsById(id);
-            case 2 -> danangIdentityRepo.existsById(id);
-            case 3 -> hcmIdentityRepo.existsById(id);
-            default -> false;
-        };
+    private void checkDuplicateAcrossSites(Long id) {
+        boolean exists = hanoiIdentityRepo.existsById(id)
+                || danangIdentityRepo.existsById(id)
+                || hcmIdentityRepo.existsById(id);
         if (exists) {
             throw new AppException(ErrorCode.INVALID_KEY,
-                    "CustomerIdentity id=" + id + " đã tồn tại tại site " + siteId);
+                    "CustomerIdentity id=" + id + " đã tồn tại ở ít nhất một site");
         }
     }
 
@@ -127,9 +125,9 @@ public class CustomerIdentityService {
         };
     }
 
-    private CustomerIdentity buildIdentity(CustomerIdentityRequest request) {
+    private CustomerIdentity buildIdentity(Long customerId, CustomerIdentityRequest request) {
         return CustomerIdentity.builder()
-                .id(request.getId())
+                .id(customerId)
                 .email(request.getEmail())
                 .password(request.getPassword())
                 .mainSite(Site.builder().id(request.getMainSiteId()).build())

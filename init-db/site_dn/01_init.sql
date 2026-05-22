@@ -123,9 +123,12 @@ INSERT INTO product_basic (id, name, price, category_id) VALUES
     (1, 'Macbook M3', 3000, 1),
     (2, 'iPhone 15 Pro', 1200, 2);
 
--- FRAGMENTATION: Phân mảnh ngang (Primary Horizontal) cho Warehouse miền Trung
+-- REPLICATED REFERENCE DATA: warehouse metadata is available at every site.
+-- Inventory remains horizontally fragmented; only local warehouse inventory is stored below.
 INSERT INTO warehouse (id, code, name, location, region, site_id) VALUES
-    (2, 'WH-DN-01', 'Kho Hải Châu', 'Đà Nẵng', 'Central', 2);
+    (1, 'WH-HN-01', 'Kho Hoàn Kiếm', 'Hà Nội', 'North', 1),
+    (2, 'WH-DN-01', 'Kho Hải Châu', 'Đà Nẵng', 'Central', 2),
+    (3, 'WH-HCM-01', 'Kho Quận 1', 'TP.HCM', 'South', 3);
 
 -- Khởi tạo tồn kho cho các kho tại DN
 INSERT INTO inventory (warehouse_id, product_id, quantity) VALUES
@@ -145,13 +148,7 @@ INSERT INTO customer_identity (id, email, password, main_site_id) VALUES
 INSERT INTO customer_profile (id, name, phone, address) VALUES
     (2, 'Tran Thi B', '0987654321', '456 Le Duan, Hai Chau, Da Nang');
 
--- Q5 DEMO: cùng order_id 1001 có thêm dòng xuất tại WH-DN-01.
--- Coordinator hợp nhất các fragment order_detail theo order_id để phát hiện nhiều kho.
-INSERT INTO orders (id, customer_id, status, site_id) VALUES
-    (1001, 1, 'PENDING', 2);
-
-INSERT INTO order_detail (order_id, product_id, warehouse_id, quantity, price) VALUES
-    (1001, 1, 2, 1, 3000.00);
+-- Q5 order 1001 is stored at its coordinator site (HN), not fragmented here.
 
 -- CẬP NHẬT LẠI SEQUENCE CHO CÁC BẢNG CÓ KHÓA CHÍNH TỰ TĂNG (SERIAL)
 SELECT setval('category_id_seq', (SELECT MAX(id) FROM category));
