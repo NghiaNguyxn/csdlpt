@@ -1,18 +1,22 @@
 package com.example.csdlpt.controller;
 
-import com.example.csdlpt.dto.response.ApiResponse;
-import com.example.csdlpt.dto.response.MonthlyRevenueResponse;
-import com.example.csdlpt.dto.response.RevenueSummaryResponse;
-import com.example.csdlpt.dto.response.TopSellingResponse;
-import com.example.csdlpt.service.ReportService;
-import lombok.RequiredArgsConstructor;
+import java.time.LocalDate;
+import java.util.List;
+
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
 
-import java.time.LocalDate;
-import java.util.List;
+import com.example.csdlpt.dto.response.ApiResponse;
+import com.example.csdlpt.dto.response.RevenueSummaryResponse;
+import com.example.csdlpt.dto.response.SiteRevenueResponse;
+import com.example.csdlpt.dto.response.TopSellingResponse;
+import com.example.csdlpt.dto.response.TotalRevenueResponse;
+import com.example.csdlpt.dto.response.WarehouseRevenueResponse;
+import com.example.csdlpt.service.ReportService;
+
+import lombok.RequiredArgsConstructor;
 
 @RestController
 @RequestMapping("/api/reports")
@@ -27,16 +31,21 @@ public class ReportController {
     }
 
     @GetMapping("/revenue/site")
-    public ApiResponse<List<MonthlyRevenueResponse>> getRevenueBySite(
-            @RequestParam(required = false) Integer year) {
+    public ApiResponse<List<SiteRevenueResponse>> getRevenueBySite(@RequestParam(required = false) Integer year) {
         Integer queryYear = year == null ? LocalDate.now().getYear() : year;
-        return ApiResponse.ok(reportService.getMonthlyRevenue(queryYear).getDetails());
+        return ApiResponse.ok(reportService.getRevenueBySite(queryYear));
+    }
+
+    @GetMapping("/revenue/warehouse")
+    public ApiResponse<List<WarehouseRevenueResponse>> getRevenueByWarehouse(@RequestParam(required = false) Integer year) {
+        Integer queryYear = year == null ? LocalDate.now().getYear() : year;
+        return ApiResponse.ok(reportService.getRevenueByWarehouse(queryYear));
     }
 
     @GetMapping("/revenue/total")
-    public ApiResponse<RevenueSummaryResponse> getTotalRevenue(@RequestParam(required = false) Integer year) {
+    public ApiResponse<TotalRevenueResponse> getTotalRevenue(@RequestParam(required = false) Integer year) {
         Integer queryYear = year == null ? LocalDate.now().getYear() : year;
-        return ApiResponse.ok(reportService.getMonthlyRevenue(queryYear));
+        return ApiResponse.ok(reportService.getTotalRevenue(queryYear));
     }
 
     @GetMapping("/top-selling")

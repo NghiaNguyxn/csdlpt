@@ -1,10 +1,7 @@
 package com.example.csdlpt.controller;
 
-import com.example.csdlpt.dto.request.CategoryRequest;
-import com.example.csdlpt.dto.response.ApiResponse;
-import com.example.csdlpt.dto.response.CategoryResponse;
-import com.example.csdlpt.service.CategoryService;
-import lombok.RequiredArgsConstructor;
+import java.util.List;
+
 import org.springframework.web.bind.annotation.DeleteMapping;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
@@ -14,7 +11,12 @@ import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
 
-import java.util.List;
+import com.example.csdlpt.dto.request.CategoryRequest;
+import com.example.csdlpt.dto.response.ApiResponse;
+import com.example.csdlpt.dto.response.CategoryResponse;
+import com.example.csdlpt.service.CategoryService;
+
+import lombok.RequiredArgsConstructor;
 
 @RestController
 @RequestMapping("/api/categories")

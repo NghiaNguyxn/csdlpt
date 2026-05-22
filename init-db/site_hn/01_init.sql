@@ -127,11 +127,11 @@ INSERT INTO product_detail (product_id, description) VALUES
     (1, 'Macbook Pro M3 với hiệu năng cực mạnh từ chip 3nm Apple silicon'),
     (2, 'iPhone 15 Pro vỏ Titanium siêu bền và nhẹ');
 
--- FRAGMENTATION: Phân mảnh ngang (Primary Horizontal) cho Warehouse miền Bắc
+-- WAREHOUSE METADATA REPLICATION: danh muc kho duoc nhan ban o tat ca site
 INSERT INTO warehouse (id, code, name, location, region, site_id) VALUES
-    (1, 'WH-HN-01', 'Kho Hoan Kiem', 'Ha Noi', 'North', 1),
-     (2, 'WH-DN-01', 'Kho Hai Chau', 'Da Nang', 'Central', 2),
-     (3, 'WH-HCM-01', 'Kho Quan 1', 'TP.HCM', 'South', 3);
+    (1, 'WH-HN-01', 'Kho Hoàn Kiếm', 'Hà Nội', 'North', 1),
+    (2, 'WH-DN-01', 'Kho Hải Châu', 'Đà Nẵng', 'Central', 2),
+    (3, 'WH-HCM-01', 'Kho Quận 1', 'TP.HCM', 'South', 3);
 
 -- Khởi tạo tồn kho cho các kho tại HN
 INSERT INTO inventory (warehouse_id, product_id, quantity) VALUES
@@ -149,7 +149,8 @@ INSERT INTO customer_profile (id, name, phone, address) VALUES
 SELECT setval('category_id_seq', (SELECT MAX(id) FROM category));
 SELECT setval('product_basic_id_seq', (SELECT MAX(id) FROM product_basic));
 SELECT setval('site_id_seq', (SELECT MAX(id) FROM site));
-SELECT setval('warehouse_id_seq', (SELECT MAX(id) FROM warehouse));
+
+SELECT setval('warehouse_id_seq', 3, true);
 -- Không cần setval cho customer_identity vì dùng BIGINT (Snowflake/Manual ID)
 SELECT setval('replication_log_id_seq', COALESCE((SELECT MAX(id) FROM replication_log), 1));
 

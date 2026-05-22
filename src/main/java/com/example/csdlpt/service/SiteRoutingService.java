@@ -4,7 +4,6 @@ import java.util.List;
 import java.util.stream.Stream;
 
 import org.springframework.data.jpa.repository.JpaRepository;
-import com.example.csdlpt.repository.common.DistributedInventoryRepository;
 import org.springframework.stereotype.Service;
 
 import com.example.csdlpt.entity.CustomerIdentity;
@@ -111,7 +110,7 @@ public class SiteRoutingService {
                 .toList();
     }
 
-    public DistributedInventoryRepository getInventoryRepository(SiteCode siteCode) {
+    public JpaRepository<Inventory, InventoryId> getInventoryRepository(SiteCode siteCode) {
         return switch (siteCode) {
             case DN -> danangInventoryRepository;
             case HCM -> hcmInventoryRepository;

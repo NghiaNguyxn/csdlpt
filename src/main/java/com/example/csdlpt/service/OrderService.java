@@ -1,5 +1,6 @@
 package com.example.csdlpt.service;
 
+import java.math.BigDecimal;
 import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.LinkedHashMap;
@@ -13,8 +14,12 @@ import org.springframework.stereotype.Service;
 import com.example.csdlpt.context.SiteContextHolder;
 import com.example.csdlpt.dto.request.DistributedOrderItemRequest;
 import com.example.csdlpt.dto.request.DistributedOrderRequest;
+import com.example.csdlpt.dto.request.LocalOrderRequest;
+import com.example.csdlpt.dto.request.OrderStatusRequest;
 import com.example.csdlpt.dto.response.DistributedOrderResponse;
 import com.example.csdlpt.dto.response.OrderAllocationResponse;
+import com.example.csdlpt.dto.response.OrderDetailResponse;
+import com.example.csdlpt.dto.response.OrderResponse;
 import com.example.csdlpt.entity.CustomerIdentity;
 import com.example.csdlpt.entity.Inventory;
 import com.example.csdlpt.entity.InventoryId;
@@ -23,6 +28,7 @@ import com.example.csdlpt.entity.OrderDetail;
 import com.example.csdlpt.entity.OrderDetailId;
 import com.example.csdlpt.entity.ProductBasic;
 import com.example.csdlpt.entity.TransactionLog;
+import com.example.csdlpt.entity.Warehouse;
 import com.example.csdlpt.enums.OrderStatus;
 import com.example.csdlpt.enums.SiteCode;
 import com.example.csdlpt.enums.TransactionStatus;
@@ -50,6 +56,50 @@ public class OrderService {
     SiteRoutingService siteRoutingService;
     InventoryTransactionService inventoryTransactionService;
     OrderPersistenceService orderPersistenceService;
+    LocalOrderTransactionService localOrderTransactionService;
+
+    public OrderResponse createLocalOrder(LocalOrderRequest request) {
+        SiteCode localSite = currentSite();
+        Order saved = switch (localSite) {
+            case DN -> localOrderTransactionService.createLocalOrderAtDanang(request);
+            case HCM -> localOrderTransactionService.createLocalOrderAtHcm(request);
+            default -> localOrderTransactionService.createLocalOrderAtHanoi(request);
+        };
+        return getOrderById(saved.getId());
+    }
+
+    public OrderResponse getOrderById(Long id) {
+        OrderSite found = findOrderSite(id);
+        return toOrderResponse(found.order(), found.siteCode(), true);
+    }
+
+    public List<OrderResponse> getAllOrders() {
+        return List.of(
+                        orderPersistenceService.findAllOrdersAtHanoi().stream()
+                                .map(order -> toOrderResponse(order, SiteCode.HN, false)).toList(),
+                        orderPersistenceService.findAllOrdersAtDanang().stream()
+                                .map(order -> toOrderResponse(order, SiteCode.DN, false)).toList(),
+                        orderPersistenceService.findAllOrdersAtHcm().stream()
+                                .map(order -> toOrderResponse(order, SiteCode.HCM, false)).toList())
+                .stream()
+                .flatMap(List::stream)
+                .sorted(Comparator.comparing(OrderResponse::getOrderDate,
+                        Comparator.nullsLast(Comparator.reverseOrder())))
+                .toList();
+    }
+
+    public OrderResponse updateStatus(Long id, OrderStatusRequest request) {
+        if (request == null || request.getStatus() == null) {
+            throw new AppException(ErrorCode.INVALID_KEY, "Tráº¡ng thÃ¡i Ä‘Æ¡n hÃ ng khÃ´ng há»£p lá»‡");
+        }
+        OrderSite found = findOrderSite(id);
+        Order updated = switch (found.siteCode()) {
+            case DN -> localOrderTransactionService.updateStatusAtDanang(id, request.getStatus());
+            case HCM -> localOrderTransactionService.updateStatusAtHcm(id, request.getStatus());
+            default -> localOrderTransactionService.updateStatusAtHanoi(id, request.getStatus());
+        };
+        return toOrderResponse(updated, found.siteCode(), true);
+    }
 
     public DistributedOrderResponse placeDistributedOrder(DistributedOrderRequest request) {
         List<OrderItem> items = normalizeItems(request);
@@ -418,6 +468,71 @@ public class OrderService {
         }
     }
 
+    private OrderSite findOrderSite(Long id) {
+        if (id == null) {
+            throw new AppException(ErrorCode.INVALID_KEY, "orderId khÃ´ng há»£p lá»‡");
+        }
+        return orderPersistenceService.findOrderAtHanoi(id).map(order -> new OrderSite(order, SiteCode.HN))
+                .or(() -> orderPersistenceService.findOrderAtDanang(id).map(order -> new OrderSite(order, SiteCode.DN)))
+                .or(() -> orderPersistenceService.findOrderAtHcm(id).map(order -> new OrderSite(order, SiteCode.HCM)))
+                .orElseThrow(() -> new AppException(ErrorCode.ORDER_NOT_FOUND));
+    }
+
+    private OrderResponse toOrderResponse(Order order, SiteCode siteCode, boolean includeDetails) {
+        List<OrderDetail> details = detailsByOrder(order.getId(), siteCode);
+        BigDecimal totalAmount = details.stream()
+                .map(detail -> safe(detail.getPrice()).multiply(BigDecimal.valueOf(detail.getQuantity() == null ? 0 : detail.getQuantity())))
+                .reduce(BigDecimal.ZERO, BigDecimal::add);
+
+        return OrderResponse.builder()
+                .id(order.getId())
+                .customerId(order.getCustomer() == null ? null : order.getCustomer().getId())
+                .orderDate(order.getOrderDate())
+                .status(order.getStatus() == null ? OrderStatus.PENDING : order.getStatus())
+                .siteCode(siteCode.name())
+                .sourceSite(siteCode.name())
+                .totalAmount(totalAmount)
+                .details(includeDetails ? details.stream().map(detail -> toOrderDetailResponse(detail, siteCode)).toList() : null)
+                .build();
+    }
+
+    private OrderDetailResponse toOrderDetailResponse(OrderDetail detail, SiteCode siteCode) {
+        Integer warehouseId = detail.getId() == null ? null : detail.getId().getWarehouseId();
+        Warehouse warehouse = warehouseId == null ? null : warehouseById(warehouseId, siteCode);
+        BigDecimal price = safe(detail.getPrice());
+        Integer quantity = detail.getQuantity() == null ? 0 : detail.getQuantity();
+        return OrderDetailResponse.builder()
+                .orderId(detail.getOrder() == null ? null : detail.getOrder().getId())
+                .productId(detail.getProduct() == null ? null : detail.getProduct().getId())
+                .productName(detail.getProduct() == null ? null : detail.getProduct().getName())
+                .warehouseId(warehouseId)
+                .warehouseCode(warehouse == null ? null : warehouse.getCode())
+                .quantity(quantity)
+                .price(price)
+                .lineTotal(price.multiply(BigDecimal.valueOf(quantity)))
+                .build();
+    }
+
+    private List<OrderDetail> detailsByOrder(Long orderId, SiteCode siteCode) {
+        return switch (siteCode) {
+            case DN -> orderPersistenceService.findOrderDetailsAtDanang(orderId);
+            case HCM -> orderPersistenceService.findOrderDetailsAtHcm(orderId);
+            default -> orderPersistenceService.findOrderDetailsAtHanoi(orderId);
+        };
+    }
+
+    private Warehouse warehouseById(Integer warehouseId, SiteCode siteCode) {
+        try {
+            return siteRoutingService.findWarehouseBySite(warehouseId, siteCode);
+        } catch (AppException ex) {
+            return null;
+        }
+    }
+
+    private SiteCode currentSite() {
+        return SiteContextHolder.getCurrentSite() == null ? SiteCode.HN : SiteContextHolder.getCurrentSite();
+    }
+
     private DistributedOrderResponse toResponse(
             Long orderId,
             String transactionId,
@@ -461,10 +576,17 @@ public class OrderService {
         return UUID.randomUUID().getMostSignificantBits() & Long.MAX_VALUE;
     }
 
+    private BigDecimal safe(BigDecimal value) {
+        return value == null ? BigDecimal.ZERO : value;
+    }
+
     private record OrderItem(Integer productId, Integer quantity) {
     }
 
     private record OrderAllocation(SiteCode siteCode, Integer warehouseId, Integer productId, Integer quantity) {
+    }
+
+    private record OrderSite(Order order, SiteCode siteCode) {
     }
 
     private static class StockAllocationException extends RuntimeException {

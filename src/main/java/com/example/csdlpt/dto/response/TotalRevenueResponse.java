@@ -11,9 +11,8 @@ import lombok.experimental.FieldDefaults;
 @AllArgsConstructor
 @Builder
 @FieldDefaults(level = AccessLevel.PRIVATE)
-public class RevenueSummaryResponse {
+public class TotalRevenueResponse {
     Integer year;
     BigDecimal totalRevenue;
-    List<MonthlyRevenueResponse> details;
     List<SiteRevenueResponse> siteBreakdown;
 }

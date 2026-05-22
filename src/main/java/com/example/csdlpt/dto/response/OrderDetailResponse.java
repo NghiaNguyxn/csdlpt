@@ -1,9 +1,8 @@
 package com.example.csdlpt.dto.response;
 
+import java.math.BigDecimal;
 import lombok.*;
 import lombok.experimental.FieldDefaults;
-
-import java.math.BigDecimal;
 
 @Getter
 @Setter

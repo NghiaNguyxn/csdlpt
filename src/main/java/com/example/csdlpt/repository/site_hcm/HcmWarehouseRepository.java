@@ -1,16 +1,22 @@
 package com.example.csdlpt.repository.site_hcm;
 
 import com.example.csdlpt.entity.Warehouse;
+import java.util.List;
+import java.util.Optional;
+import org.springframework.data.jpa.repository.EntityGraph;
 import org.springframework.data.jpa.repository.JpaRepository;
+import org.springframework.data.jpa.repository.Modifying;
+import org.springframework.data.jpa.repository.Query;
+import org.springframework.data.repository.query.Param;
 import org.springframework.stereotype.Repository;
 import org.springframework.transaction.annotation.Transactional;
-import org.springframework.data.repository.query.Param;
-import org.springframework.data.jpa.repository.Query;
-import org.springframework.data.jpa.repository.Modifying;
-import java.util.Optional;
 
 @Repository
 public interface HcmWarehouseRepository extends JpaRepository<Warehouse, Integer> {
+    @Override
+    @EntityGraph(attributePaths = "site")
+    List<Warehouse> findAll();
+
     Optional<Warehouse> findByCodeIgnoreCase(String code);
 
     boolean existsByCodeIgnoreCase(String code);
@@ -33,5 +39,17 @@ public interface HcmWarehouseRepository extends JpaRepository<Warehouse, Integer
                          @Param("location") String location,
                          @Param("region") String region,
                          @Param("siteId") Integer siteId);
+
+    @Query(value = """
+        SELECT setval(
+            'warehouse_id_seq',
+            GREATEST(
+                (SELECT COALESCE(MAX(id), 1) FROM warehouse),
+                (SELECT last_value FROM warehouse_id_seq)
+            ),
+            true
+        )
+        """, nativeQuery = true)
+    Long syncWarehouseSequence();
 
 }

@@ -1,9 +1,9 @@
 package com.example.csdlpt.dto.response;
 
+import java.math.BigDecimal;
+
 import lombok.*;
 import lombok.experimental.FieldDefaults;
-
-import java.util.List;
 
 @Getter
 @Setter
@@ -11,12 +11,12 @@ import java.util.List;
 @AllArgsConstructor
 @Builder
 @FieldDefaults(level = AccessLevel.PRIVATE)
-public class RaceConditionResponse {
+public class WarehouseRevenueResponse {
+    Integer year;
     String siteCode;
-    Integer productId;
-    Integer initialQuantity;
-    Integer finalQuantity;
-    Integer successCount;
-    Integer failedCount;
-    List<String> logs;
+    String region;
+    Integer warehouseId;
+    String warehouseCode;
+    String warehouseName;
+    BigDecimal revenue;
 }

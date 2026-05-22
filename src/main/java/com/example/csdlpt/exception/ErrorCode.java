@@ -16,7 +16,6 @@ public enum ErrorCode {
     PRODUCT_NOT_FOUND(1001, "Không tìm thấy sản phẩm", HttpStatus.NOT_FOUND),
     CATEGORY_NOT_FOUND(1002, "Danh mục không tồn tại", HttpStatus.NOT_FOUND),
     PRODUCT_EXISTED(1003, "Sản phẩm đã tồn tại trong hệ thống", HttpStatus.BAD_REQUEST),
-    CATEGORY_EXISTED(1004, "Danh mục đã tồn tại trong hệ thống", HttpStatus.BAD_REQUEST),
 
     // ===== Kho hàng & tồn kho (2xxx) =====
     INSUFFICIENT_STOCK(2001, "Không đủ tồn kho khả dụng để xử lý yêu cầu", HttpStatus.BAD_REQUEST),

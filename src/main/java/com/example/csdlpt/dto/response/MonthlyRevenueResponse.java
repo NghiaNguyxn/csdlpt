@@ -1,9 +1,8 @@
 package com.example.csdlpt.dto.response;
 
+import java.math.BigDecimal;
 import lombok.*;
 import lombok.experimental.FieldDefaults;
-
-import java.math.BigDecimal;
 
 @Getter
 @Setter
@@ -14,8 +13,6 @@ import java.math.BigDecimal;
 public class MonthlyRevenueResponse {
     Integer year;
     Integer month;
-    Integer warehouseId;
-    String warehouseCode;
     String siteCode;
     BigDecimal revenue;
 }

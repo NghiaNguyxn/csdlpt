@@ -1,5 +1,14 @@
 package com.example.csdlpt.service;
 
+import java.util.ArrayList;
+import java.util.Comparator;
+import java.util.LinkedHashMap;
+import java.util.List;
+import java.util.Map;
+
+import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Transactional;
+
 import com.example.csdlpt.dto.request.CategoryRequest;
 import com.example.csdlpt.dto.response.CategoryResponse;
 import com.example.csdlpt.entity.Category;
@@ -7,15 +16,13 @@ import com.example.csdlpt.enums.ReplicationAction;
 import com.example.csdlpt.exception.AppException;
 import com.example.csdlpt.exception.ErrorCode;
 import com.example.csdlpt.repository.site_dn.DanangCategoryRepository;
+import com.example.csdlpt.repository.site_dn.DanangProductRepository;
 import com.example.csdlpt.repository.site_hcm.HcmCategoryRepository;
+import com.example.csdlpt.repository.site_hcm.HcmProductRepository;
 import com.example.csdlpt.repository.site_hn.HanoiCategoryRepository;
 import com.example.csdlpt.repository.site_hn.HanoiProductRepository;
-import lombok.RequiredArgsConstructor;
-import org.springframework.stereotype.Service;
-import org.springframework.transaction.annotation.Transactional;
 
-import java.util.ArrayList;
-import java.util.List;
+import lombok.RequiredArgsConstructor;
 
 @Service
 @RequiredArgsConstructor
@@ -23,51 +30,66 @@ public class CategoryService {
     private final HanoiCategoryRepository hanoiCategoryRepository;
     private final DanangCategoryRepository danangCategoryRepository;
     private final HcmCategoryRepository hcmCategoryRepository;
+
     private final HanoiProductRepository hanoiProductRepository;
+    private final DanangProductRepository danangProductRepository;
+    private final HcmProductRepository hcmProductRepository;
+
     private final ReplicationService replicationService;
 
     public List<CategoryResponse> getAllCategories() {
-        List<CategoryResponse> responses = new ArrayList<>();
-        hanoiCategoryRepository.findAll().forEach(category -> responses.add(toResponse(category, "HN")));
-        return responses;
+        Map<Integer, CategoryResponse> unique = new LinkedHashMap<>();
+        hanoiCategoryRepository.findAll().forEach(category -> unique.putIfAbsent(category.getId(), toResponse(category, "HN")));
+        danangCategoryRepository.findAll().forEach(category -> unique.putIfAbsent(category.getId(), toResponse(category, "DN")));
+        hcmCategoryRepository.findAll().forEach(category -> unique.putIfAbsent(category.getId(), toResponse(category, "HCM")));
+        return new ArrayList<>(unique.values()).stream()
+                .sorted(Comparator.comparing(CategoryResponse::getId))
+                .toList();
     }
 
-    @Transactional(value = "hanoiTransactionManager")
+    @Transactional("hanoiTransactionManager")
     public CategoryResponse createCategory(CategoryRequest request) {
         validateName(request);
-        if (hanoiCategoryRepository.existsByNameIgnoreCase(request.getName().trim())) {
-            throw new AppException(ErrorCode.CATEGORY_EXISTED);
+        String name = request.getName().trim();
+        if (hanoiCategoryRepository.existsByNameIgnoreCase(name)) {
+            throw new AppException(ErrorCode.INVALID_KEY, "Tên category đã tồn tại ở master HN");
         }
-
-        Category saved = hanoiCategoryRepository.save(Category.builder()
-                .name(request.getName().trim())
-                .build());
+        Category saved = hanoiCategoryRepository.save(Category.builder().name(name).build());
         replicationService.logChange(saved.getId().longValue(), "CATEGORY", ReplicationAction.INSERT);
-        return toResponse(saved, "HN_MASTER");
+        return toResponse(saved, "HN_MASTER_PENDING_REPLICATION");
     }
 
-    @Transactional(value = "hanoiTransactionManager")
+    @Transactional("hanoiTransactionManager")
     public CategoryResponse updateCategory(Integer id, CategoryRequest request) {
         validateName(request);
         Category category = hanoiCategoryRepository.findById(id)
                 .orElseThrow(() -> new AppException(ErrorCode.CATEGORY_NOT_FOUND));
-        category.setName(request.getName().trim());
+        String name = request.getName().trim();
+        hanoiCategoryRepository.findByNameIgnoreCase(name)
+                .filter(existing -> !existing.getId().equals(id))
+                .ifPresent(existing -> {
+                    throw new AppException(ErrorCode.INVALID_KEY, "Tên category đã tồn tại ở category khác tại master HN");
+                });
+        category.setName(name);
         Category saved = hanoiCategoryRepository.save(category);
         replicationService.logChange(saved.getId().longValue(), "CATEGORY", ReplicationAction.UPDATE);
-        return toResponse(saved, "HN_MASTER");
+        return toResponse(saved, "HN_MASTER_PENDING_REPLICATION");
     }
 
-    @Transactional(value = "hanoiTransactionManager")
+    @Transactional("hanoiTransactionManager")
     public String deleteCategory(Integer id) {
         Category category = hanoiCategoryRepository.findById(id)
                 .orElseThrow(() -> new AppException(ErrorCode.CATEGORY_NOT_FOUND));
-        if (hanoiProductRepository.existsByCategory_Id(id)) {
+        boolean usedByProduct = hanoiProductRepository.existsByCategory_Id(id)
+                || danangProductRepository.existsByCategory_Id(id)
+                || hcmProductRepository.existsByCategory_Id(id);
+        if (usedByProduct) {
             throw new AppException(ErrorCode.DELETE_FAILED,
                     "Không thể xóa category vì vẫn còn product_basic tham chiếu category này");
         }
         hanoiCategoryRepository.delete(category);
         replicationService.logChange(id.longValue(), "CATEGORY", ReplicationAction.DELETE);
-        return "Đã xóa category ở HN và ghi log đồng bộ sang DN, HCM";
+        return "Đã xóa category ở master HN và ghi log lazy replication sang DN/HCM";
     }
 
     private void validateName(CategoryRequest request) {

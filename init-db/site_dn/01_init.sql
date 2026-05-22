@@ -122,11 +122,12 @@ INSERT INTO product_basic (id, name, price, category_id) VALUES
     (1, 'Macbook M3', 3000, 1),
     (2, 'iPhone 15 Pro', 1200, 2);
 
--- FRAGMENTATION: Phân mảnh ngang (Primary Horizontal) cho Warehouse miền Trung
-    INSERT INTO warehouse (id, code, name, location, region, site_id) VALUES
-        (1, 'WH-HN-01', 'Kho Hoan Kiem', 'Ha Noi', 'North', 1),
-        (2, 'WH-DN-01', 'Kho Hai Chau', 'Da Nang', 'Central', 2),
-        (3, 'WH-HCM-01', 'Kho Quan 1', 'TP.HCM', 'South', 3);
+-- WAREHOUSE METADATA REPLICATION: danh muc kho duoc nhan ban o tat ca site
+INSERT INTO warehouse (id, code, name, location, region, site_id) VALUES
+    (1, 'WH-HN-01', 'Kho Hoàn Kiếm', 'Hà Nội', 'North', 1),
+    (2, 'WH-DN-01', 'Kho Hải Châu', 'Đà Nẵng', 'Central', 2),
+    (3, 'WH-HCM-01', 'Kho Quận 1', 'TP.HCM', 'South', 3);
+
 -- Khởi tạo tồn kho cho các kho tại DN
 INSERT INTO inventory (warehouse_id, product_id, quantity) VALUES
     (2, 1, 20),

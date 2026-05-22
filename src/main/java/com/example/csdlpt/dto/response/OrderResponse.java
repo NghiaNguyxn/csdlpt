@@ -1,12 +1,11 @@
 package com.example.csdlpt.dto.response;
 
-import com.example.csdlpt.enums.OrderStatus;
-import lombok.*;
-import lombok.experimental.FieldDefaults;
-
 import java.math.BigDecimal;
 import java.time.LocalDateTime;
 import java.util.List;
+import com.example.csdlpt.enums.OrderStatus;
+import lombok.*;
+import lombok.experimental.FieldDefaults;
 
 @Getter
 @Setter
@@ -19,10 +18,8 @@ public class OrderResponse {
     Long customerId;
     LocalDateTime orderDate;
     OrderStatus status;
-    Integer warehouseId;
-    Integer siteId;
+    String siteCode;
     String sourceSite;
     BigDecimal totalAmount;
     List<OrderDetailResponse> details;
-    String transactionId;
 }

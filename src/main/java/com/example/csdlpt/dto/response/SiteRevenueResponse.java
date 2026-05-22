@@ -1,9 +1,8 @@
-package com.example.csdlpt.dto.request;
+package com.example.csdlpt.dto.response;
 
+import java.math.BigDecimal;
 import lombok.*;
 import lombok.experimental.FieldDefaults;
-
-import java.util.List;
 
 @Getter
 @Setter
@@ -11,7 +10,8 @@ import java.util.List;
 @AllArgsConstructor
 @Builder
 @FieldDefaults(level = AccessLevel.PRIVATE)
-public class MultiOrderItemRequest {
-    Integer productId;
-    List<OrderAllocationRequest> allocations;
+public class SiteRevenueResponse {
+    Integer year;
+    String siteCode;
+    BigDecimal revenue;
 }

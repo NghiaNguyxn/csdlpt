@@ -1,9 +1,8 @@
 package com.example.csdlpt.dto.request;
 
+import java.util.List;
 import lombok.*;
 import lombok.experimental.FieldDefaults;
-
-import java.util.List;
 
 @Getter
 @Setter
@@ -12,9 +11,6 @@ import java.util.List;
 @Builder
 @FieldDefaults(level = AccessLevel.PRIVATE)
 public class LocalOrderRequest {
-    Long orderId;
     Long customerId;
-    Integer warehouseId;
-    String siteCode;
     List<LocalOrderItemRequest> items;
 }
