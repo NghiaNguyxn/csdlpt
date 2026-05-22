@@ -16,7 +16,6 @@ import lombok.experimental.FieldDefaults;
 @FieldDefaults(level = AccessLevel.PRIVATE)
 public class CustomerIdentityRequest {
 
-    Long id;
     String email;
     String password;
     Integer mainSiteId;

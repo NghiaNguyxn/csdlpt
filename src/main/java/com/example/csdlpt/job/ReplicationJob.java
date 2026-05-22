@@ -2,7 +2,6 @@ package com.example.csdlpt.job;
 
 import java.util.List;
 
-import org.springframework.context.annotation.Profile;
 import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Component;
 
@@ -11,7 +10,6 @@ import com.example.csdlpt.entity.ReplicationLog;
 import com.example.csdlpt.enums.ReplicationStatus;
 import com.example.csdlpt.exception.AppException;
 import com.example.csdlpt.exception.ErrorCode;
-import com.example.csdlpt.repository.site_hn.HanoiCustomerIdentityRepository;
 import com.example.csdlpt.repository.site_hn.HanoiProductRepository;
 import com.example.csdlpt.repository.site_hn.HanoiReplicationLogRepository;
 import com.example.csdlpt.service.ReplicationService;
@@ -22,7 +20,6 @@ import lombok.experimental.FieldDefaults;
 import lombok.extern.slf4j.Slf4j;
 
 @Component
-@Profile("!test")
 @RequiredArgsConstructor
 @Slf4j
 @FieldDefaults(level = AccessLevel.PRIVATE, makeFinal = true)
@@ -30,12 +27,11 @@ public class ReplicationJob {
 
     HanoiReplicationLogRepository logRepository;
     HanoiProductRepository hanoiProductRepository;
-    HanoiCustomerIdentityRepository hanoiCustomerIdentityRepository;
     ReplicationService replicationService;
 
     @Scheduled(fixedDelay = 10000)
     public void processPendingLogs() {
-        // Job chỉ xử lý replication log ở master HN; test profile tắt job để tránh H2 thiếu schema thật.
+        // Job chỉ xử lý replication log ở master HN.
         List<ReplicationLog> pendingLogs = logRepository.findByStatusAndTargetSite(ReplicationStatus.PENDING, "DN");
         pendingLogs.addAll(logRepository.findByStatusAndTargetSite(ReplicationStatus.PENDING, "HCM"));
 
