@@ -1,4 +1,4 @@
-package com.example.csdlpt.service;
+package com.example.csdlpt.service.Order;
 
 import java.math.BigDecimal;
 import java.util.ArrayList;
@@ -34,6 +34,8 @@ import com.example.csdlpt.enums.SiteCode;
 import com.example.csdlpt.enums.TransactionStatus;
 import com.example.csdlpt.exception.AppException;
 import com.example.csdlpt.exception.ErrorCode;
+import com.example.csdlpt.service.InventoryTransactionService;
+import com.example.csdlpt.service.SiteRoutingService;
 
 import lombok.AccessLevel;
 import lombok.RequiredArgsConstructor;
@@ -83,6 +85,15 @@ public class OrderService {
                                 .map(order -> toOrderResponse(order, SiteCode.HCM, false)).toList())
                 .stream()
                 .flatMap(List::stream)
+                .sorted(Comparator.comparing(OrderResponse::getOrderDate,
+                        Comparator.nullsLast(Comparator.reverseOrder())))
+                .toList();
+    }
+
+    public List<OrderResponse> getAllOrdersBySite(String siteCode) {
+        SiteCode resolvedSite = resolveSiteCode(siteCode);
+        return findAllOrdersBySite(resolvedSite).stream()
+                .map(order -> toOrderResponse(order, resolvedSite, false))
                 .sorted(Comparator.comparing(OrderResponse::getOrderDate,
                         Comparator.nullsLast(Comparator.reverseOrder())))
                 .toList();
@@ -181,7 +192,6 @@ public class OrderService {
         try {
             // Phase 2: sau Global COMMIT không được ABORT nữa; lỗi ở đây cần retry commit/recovery.
             commitParticipants(transactionId, preparedAllocations);
-            updateOrderStatus(localSiteCode, orderId, OrderStatus.COMPLETED);
         } catch (RuntimeException ex) {
             throw new AppException(ErrorCode.SITE_CONNECTION_ERROR,
                     "Giao dịch 2PC đã có quyết định COMMIT nhưng chưa áp dụng xong ở tất cả participant: "
@@ -190,7 +200,7 @@ public class OrderService {
                             + "Lý do: " + safeMessage(ex));
         }
 
-        return toResponse(orderId, transactionId, localSiteCode, OrderStatus.COMPLETED,
+        return toResponse(orderId, transactionId, localSiteCode, OrderStatus.PENDING,
                 TransactionStatus.COMMITTED, allocations);
     }
 
@@ -478,6 +488,25 @@ public class OrderService {
                 .orElseThrow(() -> new AppException(ErrorCode.ORDER_NOT_FOUND));
     }
 
+    private List<Order> findAllOrdersBySite(SiteCode siteCode) {
+        return switch (siteCode) {
+            case DN -> orderPersistenceService.findAllOrdersAtDanang();
+            case HCM -> orderPersistenceService.findAllOrdersAtHcm();
+            default -> orderPersistenceService.findAllOrdersAtHanoi();
+        };
+    }
+
+    private SiteCode resolveSiteCode(String siteCode) {
+        if (siteCode == null || siteCode.isBlank()) {
+            throw new AppException(ErrorCode.INVALID_KEY, "siteCode khong hop le, chi nhan HN, DN, HCM");
+        }
+        try {
+            return SiteCode.valueOf(siteCode.trim().toUpperCase());
+        } catch (IllegalArgumentException ex) {
+            throw new AppException(ErrorCode.INVALID_KEY, "siteCode khong hop le, chi nhan HN, DN, HCM");
+        }
+    }
+
     private OrderResponse toOrderResponse(Order order, SiteCode siteCode, boolean includeDetails) {
         List<OrderDetail> details = detailsByOrder(order.getId(), siteCode);
         BigDecimal totalAmount = details.stream()
@@ -497,14 +526,16 @@ public class OrderService {
     }
 
     private OrderDetailResponse toOrderDetailResponse(OrderDetail detail, SiteCode siteCode) {
+        Integer productId = detail.getId() == null ? null : detail.getId().getProductId();
         Integer warehouseId = detail.getId() == null ? null : detail.getId().getWarehouseId();
+        ProductBasic product = productId == null ? null : productById(productId, siteCode);
         Warehouse warehouse = warehouseId == null ? null : warehouseById(warehouseId, siteCode);
         BigDecimal price = safe(detail.getPrice());
         Integer quantity = detail.getQuantity() == null ? 0 : detail.getQuantity();
         return OrderDetailResponse.builder()
-                .orderId(detail.getOrder() == null ? null : detail.getOrder().getId())
-                .productId(detail.getProduct() == null ? null : detail.getProduct().getId())
-                .productName(detail.getProduct() == null ? null : detail.getProduct().getName())
+                .orderId(detail.getId() == null ? null : detail.getId().getOrderId())
+                .productId(productId)
+                .productName(product == null ? null : product.getName())
                 .warehouseId(warehouseId)
                 .warehouseCode(warehouse == null ? null : warehouse.getCode())
                 .quantity(quantity)
@@ -524,6 +555,14 @@ public class OrderService {
     private Warehouse warehouseById(Integer warehouseId, SiteCode siteCode) {
         try {
             return siteRoutingService.findWarehouseBySite(warehouseId, siteCode);
+        } catch (AppException ex) {
+            return null;
+        }
+    }
+
+    private ProductBasic productById(Integer productId, SiteCode siteCode) {
+        try {
+            return siteRoutingService.findProductBySite(productId, siteCode);
         } catch (AppException ex) {
             return null;
         }

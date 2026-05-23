@@ -29,6 +29,10 @@ public class SiteInterceptor implements HandlerInterceptor {
     @Override
     public boolean preHandle(HttpServletRequest request, HttpServletResponse response, Object handler)
             throws Exception {
+        if (shouldSkipProductWrite(request)) {
+            return true;
+        }
+
         String email = request.getHeader(EMAIL_HEADER);
 
         if (email == null || email.isBlank()) {
@@ -61,6 +65,11 @@ public class SiteInterceptor implements HandlerInterceptor {
         }
 
         return true; // Continue to Controller
+    }
+
+    private boolean shouldSkipProductWrite(HttpServletRequest request) {
+        return request.getRequestURI().startsWith("/api/products")
+                && !"GET".equalsIgnoreCase(request.getMethod());
     }
 
     @Override

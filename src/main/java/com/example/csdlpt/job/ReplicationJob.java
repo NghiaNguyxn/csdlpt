@@ -5,6 +5,7 @@ import java.util.List;
 import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Component;
 
+import com.example.csdlpt.entity.Category;
 import com.example.csdlpt.entity.ProductBasic;
 import com.example.csdlpt.entity.ReplicationLog;
 import com.example.csdlpt.entity.Warehouse;

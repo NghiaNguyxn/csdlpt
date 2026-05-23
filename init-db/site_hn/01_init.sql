@@ -154,8 +154,9 @@ INSERT INTO customer_profile (id, name, phone, address) VALUES
 
 -- Q5 DEMO: order 1001 is coordinated at HN and contains all detail lines here.
 -- The lines reference warehouses from HN and DN, so local pushdown can detect multi-site export.
+-- Status COMPLETED để dữ liệu này cũng xuất hiện trong report doanh thu/top-selling.
 INSERT INTO orders (id, customer_id, status, site_id) VALUES
-     (1001, 1, 'PENDING', 1);
+     (1001, 1, 'COMPLETED', 1);
 
 INSERT INTO order_detail (order_id, product_id, warehouse_id, quantity, price) VALUES
      (1001, 1, 1, 1, 3000.00),

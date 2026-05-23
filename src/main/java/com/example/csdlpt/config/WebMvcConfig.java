@@ -18,6 +18,8 @@ public class WebMvcConfig implements WebMvcConfigurer {
                 .addPathPatterns(
                         "/api/orders/local",
                         "/api/orders/distributed",
-                        "/api/inventories/**");
+                        "/api/inventories/**",
+                        "/api/products",
+                        "/api/products/*");
     }
 }

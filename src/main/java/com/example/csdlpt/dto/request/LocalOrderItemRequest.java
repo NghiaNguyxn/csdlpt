@@ -11,6 +11,5 @@ import lombok.experimental.FieldDefaults;
 @FieldDefaults(level = AccessLevel.PRIVATE)
 public class LocalOrderItemRequest {
     Integer productId;
-    Integer warehouseId;
     Integer quantity;
 }

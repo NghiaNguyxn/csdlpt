@@ -16,7 +16,7 @@ import com.example.csdlpt.dto.request.OrderStatusRequest;
 import com.example.csdlpt.dto.response.ApiResponse;
 import com.example.csdlpt.dto.response.DistributedOrderResponse;
 import com.example.csdlpt.dto.response.OrderResponse;
-import com.example.csdlpt.service.OrderService;
+import com.example.csdlpt.service.Order.OrderService;
 
 import lombok.AccessLevel;
 import lombok.RequiredArgsConstructor;
@@ -49,6 +49,11 @@ public class OrderController {
     @GetMapping
     public ApiResponse<List<OrderResponse>> getAllOrders() {
         return ApiResponse.ok(orderService.getAllOrders());
+    }
+
+    @GetMapping("/site/{siteCode}")
+    public ApiResponse<List<OrderResponse>> getOrdersBySite(@PathVariable String siteCode) {
+        return ApiResponse.ok(orderService.getAllOrdersBySite(siteCode));
     }
 
     @PutMapping("/{id}/status")

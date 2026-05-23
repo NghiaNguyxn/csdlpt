@@ -1,4 +1,4 @@
-package com.example.csdlpt.service;
+package com.example.csdlpt.service.Customer;
 
 import java.util.List;
 import java.util.Optional;

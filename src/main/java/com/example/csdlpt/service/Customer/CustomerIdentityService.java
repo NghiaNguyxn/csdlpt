@@ -1,4 +1,4 @@
-package com.example.csdlpt.service;
+package com.example.csdlpt.service.Customer;
 
 import org.springframework.stereotype.Service;
 
