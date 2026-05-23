@@ -1,14 +1,12 @@
 package com.example.csdlpt.service;
 
-import java.util.ArrayList;
 import java.util.Comparator;
-import java.util.LinkedHashMap;
 import java.util.List;
-import java.util.Map;
 
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
+import com.example.csdlpt.context.SiteContextHolder;
 import com.example.csdlpt.dto.request.WarehouseRequest;
 import com.example.csdlpt.dto.response.WarehouseResponse;
 import com.example.csdlpt.entity.Site;
@@ -40,11 +38,9 @@ public class WarehouseService {
     private final ReplicationService replicationService;
     @Transactional(readOnly = true)
     public List<WarehouseResponse> getWarehouses() {
-        Map<Integer, WarehouseResponse> unique = new LinkedHashMap<>();
-        hanoiWarehouseRepository.findAll().forEach(w -> unique.putIfAbsent(w.getId(), toResponse(w, "HN")));
-        danangWarehouseRepository.findAll().forEach(w -> unique.putIfAbsent(w.getId(), toResponse(w, "DN")));
-        hcmWarehouseRepository.findAll().forEach(w -> unique.putIfAbsent(w.getId(), toResponse(w, "HCM")));
-        return new ArrayList<>(unique.values()).stream()
+        SiteCode siteCode = currentSite();
+        return findWarehousesBySite(siteCode).stream()
+                .map(warehouse -> toResponse(warehouse, siteCode.name()))
                 .sorted(Comparator.comparing(WarehouseResponse::getId))
                 .toList();
     }
@@ -154,5 +150,18 @@ public class WarehouseService {
                 .siteCode(warehouse.getSite() == null ? null : warehouse.getSite().getSiteCode())
                 .sourceSite(sourceSite)
                 .build();
+    }
+
+    private List<Warehouse> findWarehousesBySite(SiteCode siteCode) {
+        return switch (siteCode) {
+            case DN -> danangWarehouseRepository.findAll();
+            case HCM -> hcmWarehouseRepository.findAll();
+            default -> hanoiWarehouseRepository.findAll();
+        };
+    }
+
+    private SiteCode currentSite() {
+        SiteCode siteCode = SiteContextHolder.getCurrentSite();
+        return siteCode == null ? SiteCode.HN : siteCode;
     }
 }
