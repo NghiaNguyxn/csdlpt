@@ -3,6 +3,7 @@ package com.example.csdlpt.service;
 import java.util.List;
 
 import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Transactional;
 
 import com.example.csdlpt.context.SiteContextHolder;
 import com.example.csdlpt.dto.request.ProductRequest;
@@ -22,7 +23,6 @@ import com.example.csdlpt.repository.site_hn.HanoiCategoryRepository;
 import com.example.csdlpt.repository.site_hn.HanoiProductDetailRepository;
 import com.example.csdlpt.repository.site_hn.HanoiProductRepository;
 
-import jakarta.transaction.Transactional;
 import lombok.AccessLevel;
 import lombok.RequiredArgsConstructor;
 import lombok.experimental.FieldDefaults;
@@ -42,7 +42,7 @@ public class ProductService {
     ProductMapper productMapper;
     ReplicationService replicationService;
 
-    @Transactional
+    @Transactional("hanoiTransactionManager")
     public ProductResponse createProduct(ProductRequest request) {
         // Product dùng phân mảnh dọc: basic ở các site, detail chỉ lưu tại master HN.
         ProductBasic basic = productMapper.toProductBasic(request);
@@ -103,7 +103,7 @@ public class ProductService {
         return productMapper.toResponse(basic, detail);
     }
 
-    @Transactional
+    @Transactional("hanoiTransactionManager")
     public ProductResponse updateProduct(Integer id, ProductRequest request) {
         ProductBasic basic = hanoiProductRepository.findByIdAndIsActiveTrue(id)
                 .orElseThrow(() -> new AppException(ErrorCode.PRODUCT_NOT_FOUND));
@@ -128,7 +128,7 @@ public class ProductService {
         return productMapper.toResponse(basic, detail);
     }
 
-    @Transactional
+    @Transactional("hanoiTransactionManager")
     public String deleteProduct(Integer id) {
         ProductBasic basic = hanoiProductRepository.findByIdAndIsActiveTrue(id)
                 .orElseThrow(() -> new AppException(ErrorCode.PRODUCT_NOT_FOUND));
