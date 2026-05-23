@@ -69,13 +69,13 @@ public class ProductService {
 
         // Đọc product_basic từ site hiện tại để thể hiện dữ liệu replicated tại từng site.
         List<ProductBasic> basics;
-        if (SiteCode.DN == localSiteCode) {
-            basics = danangProductRepository.findByIsActiveTrue();
-        } else if (SiteCode.HCM == localSiteCode) {
-            basics = hcmProductRepository.findByIsActiveTrue();
-        } else {
+        if (null == localSiteCode) {
             basics = hanoiProductRepository.findByIsActiveTrue();
-        }
+        } else basics = switch (localSiteCode) {
+            case DN -> danangProductRepository.findByIsActiveTrue();
+            case HCM -> hcmProductRepository.findByIsActiveTrue();
+            default -> hanoiProductRepository.findByIsActiveTrue();
+        };
 
         return productMapper.toBasicResponses(basics);
     }
@@ -86,16 +86,17 @@ public class ProductService {
 
         // Basic lấy theo site hiện tại, còn detail lấy từ HN vì đây là mảnh dọc đặt tại master.
         ProductBasic basic;
-        if (SiteCode.DN == localSiteCode) {
-            basic = danangProductRepository.findByIdAndIsActiveTrue(id)
-                    .orElseThrow(() -> new AppException(ErrorCode.PRODUCT_NOT_FOUND));
-        } else if (SiteCode.HCM == localSiteCode) {
-            basic = hcmProductRepository.findByIdAndIsActiveTrue(id)
-                    .orElseThrow(() -> new AppException(ErrorCode.PRODUCT_NOT_FOUND));
-        } else {
+        if (null == localSiteCode) {
             basic = hanoiProductRepository.findByIdAndIsActiveTrue(id)
                     .orElseThrow(() -> new AppException(ErrorCode.PRODUCT_NOT_FOUND));
-        }
+        } else basic = switch (localSiteCode) {
+            case DN -> danangProductRepository.findByIdAndIsActiveTrue(id)
+                    .orElseThrow(() -> new AppException(ErrorCode.PRODUCT_NOT_FOUND));
+            case HCM -> hcmProductRepository.findByIdAndIsActiveTrue(id)
+                    .orElseThrow(() -> new AppException(ErrorCode.PRODUCT_NOT_FOUND));
+            default -> hanoiProductRepository.findByIdAndIsActiveTrue(id)
+                    .orElseThrow(() -> new AppException(ErrorCode.PRODUCT_NOT_FOUND));
+        };
 
         ProductDetail detail = hanoiDetailRepository.findByProductId(id)
                 .orElseThrow(() -> new AppException(ErrorCode.PRODUCT_NOT_FOUND));
