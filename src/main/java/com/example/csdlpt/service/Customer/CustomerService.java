@@ -1,4 +1,4 @@
-package com.example.csdlpt.service;
+package com.example.csdlpt.service.Customer;
 
 import java.util.Comparator;
 import java.util.List;
@@ -40,6 +40,8 @@ public class CustomerService {
     HcmCustomerProfileRepository hcmCustomerProfileRepository;
     CustomerIdentityCreationHelper creationHelper;
     CustomerIdGenerator customerIdGenerator;
+    CustomerProfileWriter customerProfileWriter;
+    CustomerDeleteWriter customerDeleteWriter;
 
     public List<CustomerResponse> findAllCustomers() {
         return Stream.of(
@@ -85,17 +87,15 @@ public class CustomerService {
                 .mainSite(Site.builder().id(request.getMainSiteId()).build())
                 .build();
 
-        CustomerIdentity savedIdentity = switch (request.getMainSiteId()) {
-            case 1 -> creationHelper.createAndLogAtHanoi(identity);
-            case 2 -> creationHelper.createAndLogAtDanang(identity);
-            case 3 -> creationHelper.createAndLogAtHcm(identity);
+        CustomerProfile savedProfile = switch (request.getMainSiteId()) {
+            case 1 -> creationHelper.createCustomerAtHanoi(identity, request);
+            case 2 -> creationHelper.createCustomerAtDanang(identity, request);
+            case 3 -> creationHelper.createCustomerAtHcm(identity, request);
             default -> throw new AppException(ErrorCode.INVALID_KEY, "mainSiteId không hợp lệ (1=HN, 2=DN, 3=HCM)");
         };
 
-        CustomerProfile savedProfile = saveProfileAtSite(request, savedIdentity);
-
         log.info("Đã tạo customer ID={} tại site {}, replication log đã ghi cho 2 site còn lại",
-                savedIdentity.getId(), request.getMainSiteId());
+                savedProfile.getId(), request.getMainSiteId());
         return toResponse(savedProfile, siteCode(request.getMainSiteId()));
     }
 
@@ -134,11 +134,7 @@ public class CustomerService {
                 .or(() -> hcmCustomerIdentityRepository.findById(id))
                 .orElseThrow(() -> new AppException(ErrorCode.INVALID_KEY, "Không tìm thấy khách hàng ID=" + id));
 
-        deleteProfileAtSite(id, identity.getMainSite().getId());
-        // Xóa identity khỏi cả 3 site (eager delete)
-        hanoiCustomerIdentityRepository.deleteById(id);
-        danangCustomerIdentityRepository.deleteReplicatedCustomerIdentity(id);
-        hcmCustomerIdentityRepository.deleteReplicatedCustomerIdentity(id);
+        deleteCustomerAndReplicas(id, identity.getMainSite().getId());
 
         log.info("Đã xóa customer ID={} khỏi fragment profile và các bản sao identity", id);
     }
@@ -188,27 +184,40 @@ public class CustomerService {
     }
 
     private CustomerProfile saveProfileAtSite(CustomerRequest request, CustomerIdentity identity) {
-        CustomerProfile profile = CustomerProfile.builder()
-                .id(identity.getId())
-                .identity(identity)
-                .name(request.getName())
-                .phone(request.getPhone())
-                .address(request.getAddress())
-                .build();
-
         return switch (request.getMainSiteId()) {
-            case 1 -> hanoiCustomerProfileRepository.save(profile);
-            case 2 -> danangCustomerProfileRepository.save(profile);
-            case 3 -> hcmCustomerProfileRepository.save(profile);
+            case 1 -> customerProfileWriter.saveAtHanoi(identity.getId(), request);
+            case 2 -> customerProfileWriter.saveAtDanang(identity.getId(), request);
+            case 3 -> customerProfileWriter.saveAtHcm(identity.getId(), request);
             default -> throw new AppException(ErrorCode.INVALID_KEY, "mainSiteId không hợp lệ");
         };
     }
 
     private void deleteProfileAtSite(Long id, Integer siteId) {
         switch (siteId) {
-            case 1 -> hanoiCustomerProfileRepository.deleteById(id);
-            case 2 -> danangCustomerProfileRepository.deleteById(id);
-            case 3 -> hcmCustomerProfileRepository.deleteById(id);
+            case 1 -> customerDeleteWriter.deleteProfileAtHanoi(id);
+            case 2 -> customerDeleteWriter.deleteProfileAtDanang(id);
+            case 3 -> customerDeleteWriter.deleteProfileAtHcm(id);
+            default -> throw new AppException(ErrorCode.INVALID_KEY, "mainSiteId không hợp lệ");
+        }
+    }
+
+    private void deleteCustomerAndReplicas(Long id, Integer mainSiteId) {
+        switch (mainSiteId) {
+            case 1 -> {
+                customerDeleteWriter.deleteCustomerAtHanoi(id);
+                customerDeleteWriter.deleteIdentityAtDanang(id);
+                customerDeleteWriter.deleteIdentityAtHcm(id);
+            }
+            case 2 -> {
+                customerDeleteWriter.deleteIdentityAtHanoi(id);
+                customerDeleteWriter.deleteCustomerAtDanang(id);
+                customerDeleteWriter.deleteIdentityAtHcm(id);
+            }
+            case 3 -> {
+                customerDeleteWriter.deleteIdentityAtHanoi(id);
+                customerDeleteWriter.deleteIdentityAtDanang(id);
+                customerDeleteWriter.deleteCustomerAtHcm(id);
+            }
             default -> throw new AppException(ErrorCode.INVALID_KEY, "mainSiteId không hợp lệ");
         }
     }
@@ -216,12 +225,13 @@ public class CustomerService {
     private CustomerResponse toResponse(CustomerProfile profile, String fragmentSiteCode) {
         CustomerIdentity identity = profile.getIdentity();
         Site mainSite = identity != null ? identity.getMainSite() : null;
+        Integer mainSiteId = mainSite != null ? mainSite.getId() : null;
 
         return CustomerResponse.builder()
                 .id(profile.getId())
                 .email(identity != null ? identity.getEmail() : null)
-                .mainSiteId(mainSite != null ? mainSite.getId() : null)
-                .mainSiteCode(mainSite != null ? mainSite.getSiteCode() : null)
+                .mainSiteId(mainSiteId)
+                .mainSiteCode(mainSiteId != null ? siteCode(mainSiteId) : null)
                 .name(profile.getName())
                 .phone(profile.getPhone())
                 .address(profile.getAddress())

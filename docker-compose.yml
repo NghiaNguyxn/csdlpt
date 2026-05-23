@@ -44,6 +44,21 @@ services:
     networks:
       - distributed_nw
 
+  db_central:
+    image: bitnami/postgresql:latest
+    container_name: central_sales_db
+    ports:
+      - "5435:5432"
+    environment:
+      - POSTGRESQL_USERNAME=admin
+      - POSTGRESQL_PASSWORD=123456
+      - POSTGRESQL_DATABASE=sales_db
+      - ALLOW_EMPTY_PASSWORD=no
+    volumes:
+      - ./init-db/site_central:/docker-entrypoint-initdb.d
+    networks:
+      - distributed_nw
+
 networks:
   distributed_nw:
     driver: bridge

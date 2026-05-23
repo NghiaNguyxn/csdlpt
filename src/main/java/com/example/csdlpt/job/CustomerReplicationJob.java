@@ -3,7 +3,7 @@ package com.example.csdlpt.job;
 import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Component;
 
-import com.example.csdlpt.service.CustomerReplicationProcessor;
+import com.example.csdlpt.service.Customer.CustomerReplicationProcessor;
 
 import lombok.AccessLevel;
 import lombok.RequiredArgsConstructor;

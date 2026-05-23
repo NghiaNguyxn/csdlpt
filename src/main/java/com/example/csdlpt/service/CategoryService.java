@@ -1,18 +1,17 @@
 package com.example.csdlpt.service;
 
-import java.util.ArrayList;
 import java.util.Comparator;
-import java.util.LinkedHashMap;
 import java.util.List;
-import java.util.Map;
 
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
+import com.example.csdlpt.context.SiteContextHolder;
 import com.example.csdlpt.dto.request.CategoryRequest;
 import com.example.csdlpt.dto.response.CategoryResponse;
 import com.example.csdlpt.entity.Category;
 import com.example.csdlpt.enums.ReplicationAction;
+import com.example.csdlpt.enums.SiteCode;
 import com.example.csdlpt.exception.AppException;
 import com.example.csdlpt.exception.ErrorCode;
 import com.example.csdlpt.repository.site_dn.DanangCategoryRepository;
@@ -38,11 +37,9 @@ public class CategoryService {
     private final ReplicationService replicationService;
 
     public List<CategoryResponse> getAllCategories() {
-        Map<Integer, CategoryResponse> unique = new LinkedHashMap<>();
-        hanoiCategoryRepository.findAll().forEach(category -> unique.putIfAbsent(category.getId(), toResponse(category, "HN")));
-        danangCategoryRepository.findAll().forEach(category -> unique.putIfAbsent(category.getId(), toResponse(category, "DN")));
-        hcmCategoryRepository.findAll().forEach(category -> unique.putIfAbsent(category.getId(), toResponse(category, "HCM")));
-        return new ArrayList<>(unique.values()).stream()
+        SiteCode siteCode = currentSite();
+        return findCategoriesBySite(siteCode).stream()
+                .map(category -> toResponse(category, siteCode.name()))
                 .sorted(Comparator.comparing(CategoryResponse::getId))
                 .toList();
     }
@@ -104,5 +101,18 @@ public class CategoryService {
                 .name(category.getName())
                 .sourceSite(sourceSite)
                 .build();
+    }
+
+    private List<Category> findCategoriesBySite(SiteCode siteCode) {
+        return switch (siteCode) {
+            case DN -> danangCategoryRepository.findAll();
+            case HCM -> hcmCategoryRepository.findAll();
+            default -> hanoiCategoryRepository.findAll();
+        };
+    }
+
+    private SiteCode currentSite() {
+        SiteCode siteCode = SiteContextHolder.getCurrentSite();
+        return siteCode == null ? SiteCode.HN : siteCode;
     }
 }

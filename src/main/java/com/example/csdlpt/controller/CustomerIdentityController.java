@@ -3,7 +3,8 @@ package com.example.csdlpt.controller;
 import com.example.csdlpt.dto.request.CustomerIdentityRequest;
 import com.example.csdlpt.dto.response.ApiResponse;
 import com.example.csdlpt.dto.response.CustomerIdentityResponse;
-import com.example.csdlpt.service.CustomerIdentityService;
+import com.example.csdlpt.service.Customer.CustomerIdentityService;
+
 import lombok.AccessLevel;
 import lombok.RequiredArgsConstructor;
 import lombok.experimental.FieldDefaults;

@@ -15,9 +15,6 @@ public class WebMvcConfig implements WebMvcConfigurer {
     @Override
     public void addInterceptors(InterceptorRegistry registry) {
         registry.addInterceptor(siteInterceptor)
-                .addPathPatterns(
-                        "/api/orders/local",
-                        "/api/orders/distributed",
-                        "/api/inventories/**");
+                .addPathPatterns("/api/**");
     }
 }
