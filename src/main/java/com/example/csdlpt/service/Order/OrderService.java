@@ -75,13 +75,14 @@ public class OrderService {
         return toOrderResponse(found.order(), found.siteCode(), true);
     }
 
-    public List<OrderResponse> getAllOrders() {
+    public List<OrderResponse> getAllOrders(String status) {
+        OrderStatus resolvedStatus = resolveOrderStatusFilter(status);
         return List.of(
-                        orderPersistenceService.findAllOrdersAtHanoi().stream()
+                        findOrdersBySite(SiteCode.HN, resolvedStatus).stream()
                                 .map(order -> toOrderResponse(order, SiteCode.HN, false)).toList(),
-                        orderPersistenceService.findAllOrdersAtDanang().stream()
+                        findOrdersBySite(SiteCode.DN, resolvedStatus).stream()
                                 .map(order -> toOrderResponse(order, SiteCode.DN, false)).toList(),
-                        orderPersistenceService.findAllOrdersAtHcm().stream()
+                        findOrdersBySite(SiteCode.HCM, resolvedStatus).stream()
                                 .map(order -> toOrderResponse(order, SiteCode.HCM, false)).toList())
                 .stream()
                 .flatMap(List::stream)
@@ -90,9 +91,10 @@ public class OrderService {
                 .toList();
     }
 
-    public List<OrderResponse> getAllOrdersBySite(String siteCode) {
+    public List<OrderResponse> getAllOrdersBySite(String siteCode, String status) {
         SiteCode resolvedSite = resolveSiteCode(siteCode);
-        return findAllOrdersBySite(resolvedSite).stream()
+        OrderStatus resolvedStatus = resolveOrderStatusFilter(status);
+        return findOrdersBySite(resolvedSite, resolvedStatus).stream()
                 .map(order -> toOrderResponse(order, resolvedSite, false))
                 .sorted(Comparator.comparing(OrderResponse::getOrderDate,
                         Comparator.nullsLast(Comparator.reverseOrder())))
@@ -101,7 +103,7 @@ public class OrderService {
 
     public OrderResponse updateStatus(Long id, OrderStatusRequest request) {
         if (request == null || request.getStatus() == null) {
-            throw new AppException(ErrorCode.INVALID_KEY, "Tráº¡ng thÃ¡i Ä‘Æ¡n hÃ ng khÃ´ng há»£p lá»‡");
+            throw new AppException(ErrorCode.INVALID_KEY, "Trạng thái đơn hàng không hợp lệ");
         }
         OrderSite found = findOrderSite(id);
         Order updated = switch (found.siteCode()) {
@@ -480,7 +482,7 @@ public class OrderService {
 
     private OrderSite findOrderSite(Long id) {
         if (id == null) {
-            throw new AppException(ErrorCode.INVALID_KEY, "orderId khÃ´ng há»£p lá»‡");
+            throw new AppException(ErrorCode.INVALID_KEY, "orderId không hợp lệ");
         }
         return orderPersistenceService.findOrderAtHanoi(id).map(order -> new OrderSite(order, SiteCode.HN))
                 .or(() -> orderPersistenceService.findOrderAtDanang(id).map(order -> new OrderSite(order, SiteCode.DN)))
@@ -496,6 +498,17 @@ public class OrderService {
         };
     }
 
+    private List<Order> findOrdersBySite(SiteCode siteCode, OrderStatus status) {
+        if (status == null) {
+            return findAllOrdersBySite(siteCode);
+        }
+        return switch (siteCode) {
+            case DN -> orderPersistenceService.findOrdersByStatusAtDanang(status);
+            case HCM -> orderPersistenceService.findOrdersByStatusAtHcm(status);
+            default -> orderPersistenceService.findOrdersByStatusAtHanoi(status);
+        };
+    }
+
     private SiteCode resolveSiteCode(String siteCode) {
         if (siteCode == null || siteCode.isBlank()) {
             throw new AppException(ErrorCode.INVALID_KEY, "siteCode khong hop le, chi nhan HN, DN, HCM");
@@ -504,6 +517,18 @@ public class OrderService {
             return SiteCode.valueOf(siteCode.trim().toUpperCase());
         } catch (IllegalArgumentException ex) {
             throw new AppException(ErrorCode.INVALID_KEY, "siteCode khong hop le, chi nhan HN, DN, HCM");
+        }
+    }
+
+    private OrderStatus resolveOrderStatusFilter(String status) {
+        if (status == null || status.isBlank()) {
+            return null;
+        }
+        try {
+            return OrderStatus.valueOf(status.trim().toUpperCase());
+        } catch (IllegalArgumentException ex) {
+            throw new AppException(ErrorCode.INVALID_KEY,
+                    "status không hợp lệ, chỉ nhận PENDING, COMPLETED, CANCELLED");
         }
     }
 
