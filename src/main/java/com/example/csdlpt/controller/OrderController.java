@@ -8,6 +8,7 @@ import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.PutMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
+import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
 
 import com.example.csdlpt.dto.request.DistributedOrderRequest;
@@ -47,13 +48,16 @@ public class OrderController {
     }
 
     @GetMapping
-    public ApiResponse<List<OrderResponse>> getAllOrders() {
-        return ApiResponse.ok(orderService.getAllOrders());
+    public ApiResponse<List<OrderResponse>> getAllOrders(
+            @RequestParam(required = false) String status) {
+        return ApiResponse.ok(orderService.getAllOrders(status));
     }
 
     @GetMapping("/site/{siteCode}")
-    public ApiResponse<List<OrderResponse>> getOrdersBySite(@PathVariable String siteCode) {
-        return ApiResponse.ok(orderService.getAllOrdersBySite(siteCode));
+    public ApiResponse<List<OrderResponse>> getOrdersBySite(
+            @PathVariable String siteCode,
+            @RequestParam(required = false) String status) {
+        return ApiResponse.ok(orderService.getAllOrdersBySite(siteCode, status));
     }
 
     @PutMapping("/{id}/status")

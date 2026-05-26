@@ -119,12 +119,24 @@ public class OrderPersistenceService {
         return hanoiOrderRepository.findAll();
     }
 
+    public List<Order> findOrdersByStatusAtHanoi(OrderStatus status) {
+        return hanoiOrderRepository.findByStatus(status);
+    }
+
     public List<Order> findAllOrdersAtDanang() {
         return danangOrderRepository.findAll();
     }
 
+    public List<Order> findOrdersByStatusAtDanang(OrderStatus status) {
+        return danangOrderRepository.findByStatus(status);
+    }
+
     public List<Order> findAllOrdersAtHcm() {
         return hcmOrderRepository.findAll();
+    }
+
+    public List<Order> findOrdersByStatusAtHcm(OrderStatus status) {
+        return hcmOrderRepository.findByStatus(status);
     }
 
     public List<OrderDetail> findOrderDetailsAtHanoi(Long orderId) {
