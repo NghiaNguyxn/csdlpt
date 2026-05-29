@@ -129,7 +129,7 @@ public class OrderService {
                         attempt, maxAttempts);
             } catch (StockAllocationException ex) {
                 log.warn("Không đủ tồn kho toàn hệ thống ở bước phân bổ. Lý do kỹ thuật: {}", safeMessage(ex));
-                throw new AppException(ErrorCode.INSUFFICIENT_STOCK, GLOBAL_STOCK_NOT_ENOUGH_MESSAGE);
+                throw new AppException(ErrorCode.INSUFFICIENT_STOCK, ex.userMessage());
             } catch (StockChangedDuringPrepareException ex) {
                 AppException userException = new AppException(ErrorCode.INSUFFICIENT_STOCK,
                         STOCK_CHANGED_DURING_PROCESSING_MESSAGE);
@@ -297,6 +297,7 @@ public class OrderService {
 
         int remaining = requestedQuantity;
         List<OrderAllocation> allocations = new ArrayList<>();
+        List<SiteCode> unavailableSites = new ArrayList<>();
 
         // Ưu tiên kho ở site local, sau đó mới lấy bù từ các site khác để giảm chi phí phân tán.
         for (SiteCode siteCode : siteOrder) {
@@ -304,10 +305,18 @@ public class OrderService {
                 break;
             }
 
-            List<Inventory> inventories = siteRoutingService.findInventoryByProductAndSite(productId, siteCode).stream()
-                    .filter(inventory -> inventory.getQuantity() != null && inventory.getQuantity() > 0)
-                    .sorted(Comparator.comparing(inventory -> inventory.getId().getWarehouseId()))
-                    .toList();
+            List<Inventory> inventories;
+            try {
+                inventories = siteRoutingService.findInventoryByProductAndSite(productId, siteCode).stream()
+                        .filter(inventory -> inventory.getQuantity() != null && inventory.getQuantity() > 0)
+                        .sorted(Comparator.comparing(inventory -> inventory.getId().getWarehouseId()))
+                        .toList();
+            } catch (RuntimeException ex) {
+                unavailableSites.add(siteCode);
+                log.warn("Bỏ qua site {} khi phân bổ đơn hàng vì site không hoạt động hoặc không truy vấn được. productId={}, lý do={}",
+                        siteCode, productId, safeMessage(ex));
+                continue;
+            }
 
             for (Inventory inventory : inventories) {
                 if (remaining == 0) {
@@ -326,6 +335,20 @@ public class OrderService {
 
         if (remaining > 0) {
             int availableQuantity = requestedQuantity - remaining;
+            if (!unavailableSites.isEmpty()) {
+                String userMessage = "Không đủ tồn kho tại các site đang khả dụng để đáp ứng đơn hàng. "
+                        + "Một số chi nhánh đang không hoạt động: "
+                        + unavailableSites
+                        + ". Vui lòng thử lại sau hoặc giảm số lượng đặt hàng.";
+                throw new StockAllocationException(
+                        "Không đủ tồn kho khả dụng để tạo đơn hàng: sản phẩm id=" + productId
+                                + ", số lượng cần=" + requestedQuantity
+                                + ", số lượng có thể phân bổ=" + availableQuantity
+                                + ", còn thiếu=" + remaining
+                                + ", các site không khả dụng khi phân bổ=" + unavailableSites
+                                + ". Giao dịch 2PC chưa được tạo nên không có participant cần ABORT.",
+                        userMessage);
+            }
             throw new StockAllocationException(
                     "Không đủ tồn kho khả dụng để tạo đơn hàng: sản phẩm id=" + productId
                             + ", số lượng cần=" + requestedQuantity
@@ -654,8 +677,20 @@ public class OrderService {
     }
 
     private static class StockAllocationException extends RuntimeException {
+        private final String userMessage;
+
         StockAllocationException(String message) {
             super(message);
+            this.userMessage = GLOBAL_STOCK_NOT_ENOUGH_MESSAGE;
+        }
+
+        StockAllocationException(String message, String userMessage) {
+            super(message);
+            this.userMessage = userMessage;
+        }
+
+        String userMessage() {
+            return userMessage;
         }
     }
 
