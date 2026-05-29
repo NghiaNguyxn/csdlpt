@@ -37,6 +37,15 @@ public class ReplicationJob {
 
     @Scheduled(fixedDelay = 10000)
     public void processPendingLogs() {
+        try {
+            processPendingLogsInternal();
+        } catch (RuntimeException ex) {
+            log.warn("[ReplicationJob] Bỏ qua lần chạy replication vì master/site nguồn không hoạt động hoặc không truy vấn được: {}",
+                    ex.getMessage());
+        }
+    }
+
+    private void processPendingLogsInternal() {
         // Job chỉ xử lý replication log ở master HN.
         List<ReplicationLog> pendingLogs = logRepository.findByStatusAndTargetSiteOrderByIdAsc(ReplicationStatus.PENDING, "DN");
         pendingLogs.addAll(logRepository.findByStatusAndTargetSiteOrderByIdAsc(ReplicationStatus.PENDING, "HCM"));
@@ -70,11 +79,16 @@ public class ReplicationJob {
                 }
             } catch (Exception e) {
                 log.error("Lỗi khi đồng bộ logId={}: {}", logEntry.getId(), e.getMessage());
-                replicationService.markLogRetry(logEntry, e.getMessage());
+                try {
+                    replicationService.markLogRetry(logEntry, e.getMessage());
 
                 // Sau 5 lần retry không thành công, đánh dấu FAILED để không retry vô hạn.
                 if (logEntry.getRetryCount() >= 5) {
-                    replicationService.markLogFailed(logEntry, e.getMessage());
+                        replicationService.markLogFailed(logEntry, e.getMessage());
+                    }
+                } catch (RuntimeException retryLogError) {
+                    log.warn("Không thể cập nhật trạng thái retry cho replication logId={}: {}",
+                            logEntry.getId(), retryLogError.getMessage());
                 }
             }
         }

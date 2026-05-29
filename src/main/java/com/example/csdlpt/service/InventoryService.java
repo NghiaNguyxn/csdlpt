@@ -38,34 +38,42 @@ public class InventoryService {
             log.info("Thực thi getInventoryBySite tại Local Site: {}", siteCode);
         }
 
-        List<Warehouse> warehouses = siteRoutingService.findAllWareHouseBySite(siteCode);
-        ProductBasic product = siteRoutingService.findProductBySite(productId, siteCode);
-        var inventoryRepo = siteRoutingService.getInventoryRepository(siteCode);
+        try {
+            List<Warehouse> warehouses = siteRoutingService.findAllWareHouseBySite(siteCode);
+            ProductBasic product = siteRoutingService.findProductBySite(productId, siteCode);
+            var inventoryRepo = siteRoutingService.getInventoryRepository(siteCode);
 
-        Integer totalQuantity = warehouses.stream()
-                .map(warehouse -> {
-                    InventoryId inventoryId = InventoryId.builder()
-                            .warehouseId(warehouse.getId())
-                            .productId(productId)
-                            .build();
+            Integer totalQuantity = warehouses.stream()
+                    .map(warehouse -> {
+                        InventoryId inventoryId = InventoryId.builder()
+                                .warehouseId(warehouse.getId())
+                                .productId(productId)
+                                .build();
 
-                    Inventory inventory = inventoryRepo.findById(inventoryId)
-                            .orElseGet(() -> Inventory.builder()
-                                    .id(inventoryId)
-                                    .product(product)
-                                    .warehouse(warehouse)
-                                    .quantity(0)
-                                    .build());
+                        Inventory inventory = inventoryRepo.findById(inventoryId)
+                                .orElseGet(() -> Inventory.builder()
+                                        .id(inventoryId)
+                                        .product(product)
+                                        .warehouse(warehouse)
+                                        .quantity(0)
+                                        .build());
 
-                    return inventory.getQuantity();
-                })
-                .reduce(0, Integer::sum, Integer::sum);
+                        return inventory.getQuantity();
+                    })
+                    .reduce(0, Integer::sum, Integer::sum);
 
-        return StockResponse.builder()
-                .productId(productId)
-                .quantity(totalQuantity)
-                .siteCode(siteCode.name())
-                .build();
+            return StockResponse.builder()
+                    .productId(productId)
+                    .quantity(totalQuantity)
+                    .siteCode(siteCode.name())
+                    .build();
+        } catch (AppException e) {
+            throw e;
+        } catch (RuntimeException e) {
+            throw new AppException(ErrorCode.SITE_CONNECTION_ERROR,
+                    "Site " + siteCode.name()
+                            + " đang không hoạt động hoặc không thể truy vấn tồn kho");
+        }
     }
 
     public StockResponse getGlobalStock(Integer productId) {
@@ -168,6 +176,10 @@ public class InventoryService {
             return getStockBySite(productId, siteCode).getQuantity();
         } catch (AppException e) {
             log.warn("Không thể lấy tồn kho tại site {}, productId={}: {}", siteCode, productId, e.getMessage());
+            return 0;
+        } catch (RuntimeException e) {
+            log.warn("Không thể kết nối hoặc truy vấn tồn kho tại site {}, productId={}. Tạm tính tồn kho site này là 0. Lý do: {}",
+                    siteCode, productId, e.getMessage());
             return 0;
         }
     }
