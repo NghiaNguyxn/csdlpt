@@ -28,8 +28,17 @@ public class CustomerReplicationJob {
     public void processCustomerReplication() {
         log.debug("[CustomerReplicationJob] Bắt đầu xử lý lazy replication cho CUSTOMER_IDENTITY");
 
-        customerReplicationProcessor.processHanoiLogs();
-        customerReplicationProcessor.processDanangLogs();
-        customerReplicationProcessor.processHcmLogs();
+        processSite("HN", customerReplicationProcessor::processHanoiLogs);
+        processSite("DN", customerReplicationProcessor::processDanangLogs);
+        processSite("HCM", customerReplicationProcessor::processHcmLogs);
+    }
+
+    private void processSite(String siteCode, Runnable replicationTask) {
+        try {
+            replicationTask.run();
+        } catch (RuntimeException ex) {
+            log.warn("[CustomerReplicationJob] Bỏ qua lần chạy replication tại site {} vì site không hoạt động hoặc không truy vấn được: {}",
+                    siteCode, ex.getMessage());
+        }
     }
 }

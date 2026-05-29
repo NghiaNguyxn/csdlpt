@@ -17,8 +17,10 @@ import com.example.csdlpt.exception.ErrorCode;
 import lombok.AccessLevel;
 import lombok.RequiredArgsConstructor;
 import lombok.experimental.FieldDefaults;
+import lombok.extern.slf4j.Slf4j;
 
 @Service
+@Slf4j
 @RequiredArgsConstructor
 @FieldDefaults(level = AccessLevel.PRIVATE, makeFinal = true)
 public class BenchmarkService {
@@ -71,7 +73,14 @@ public class BenchmarkService {
         centralJdbcTemplate.update("delete from central_inventory where product_id = ?", productId);
 
         for (SiteCode siteCode : SiteCode.values()) {
-            List<Inventory> inventories = siteRoutingService.findInventoryByProductAndSite(productId, siteCode);
+            List<Inventory> inventories;
+            try {
+                inventories = siteRoutingService.findInventoryByProductAndSite(productId, siteCode);
+            } catch (RuntimeException ex) {
+                log.warn("Không thể đồng bộ tồn kho benchmark từ site {}, productId={}. Bỏ qua site này. Lý do: {}",
+                        siteCode, productId, ex.getMessage());
+                continue;
+            }
             for (Inventory inventory : inventories) {
                 centralJdbcTemplate.update("""
                         insert into central_inventory
